@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DC モーターを H ブリッジで動かす（motor.c）</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f1f2f6; --panel: #ffffff; --inset: #eceef3; --inset-hover: #dfe3ea;
+  --fg: #1b1e26; --dim: #596072; --wire: #7b8294;
+  --accent: #e07a10; --accent-ink: #a65200; --accent-soft: #fdebd3;
+  --recirc: #2f86c4; --recirc-ink: #1d5f8f; --recirc-soft: #d9ebf7;
+  --led: #f5b800; --led-off: #c9cdd6;
+  --bit1: #3d62b6; --bit1-ink: #ffffff; --bit0: #e4e7ee; --bit0-ink: #4d5464;
+  --hl: #ffefc2; --focus: #1f6feb;
+  --mono: Consolas, "BIZ UDGothic", "MS Gothic", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161b; --panel: #1e222a; --inset: #282d37; --inset-hover: #343a47;
+    --fg: #e4e7ee; --dim: #9ba2b3; --wire: #6f778a;
+    --accent: #ff9a2e; --accent-ink: #ffb061; --accent-soft: #43311b;
+    --recirc: #4ea3e0; --recirc-ink: #8cc8f2; --recirc-soft: #1c3449;
+    --led: #ffd246; --led-off: #4a4f5c;
+    --bit1: #5b83dd; --bit1-ink: #0e1116; --bit0: #2a2f3a; --bit0-ink: #aab1c2;
+    --hl: #40371f; --focus: #6ea8ff;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: "Yu Gothic UI", "Meiryo UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.5;
+}
+.wrap { max-width: 1840px; margin: 0 auto; padding: 16px 20px 28px; }
+.top { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-end; justify-content: space-between; }
+h1 { font-size: 20px; line-height: 1.3; margin: 0; }
+.sub { margin: 2px 0 0; color: var(--dim); font-size: 13px; }
+.choices { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.seg { border: 0; padding: 0; margin: 0; min-width: 0; }
+.seg legend { font-size: 12px; color: var(--dim); padding: 0; margin-bottom: 4px; }
+.seg .opts { display: inline-flex; flex-wrap: wrap; background: var(--inset); border-radius: 9px; padding: 3px; gap: 3px; }
+.seg label { position: relative; display: block; }
+.seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.seg span { display: block; padding: 5px 12px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.seg input:checked + span { background: var(--panel); font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, .28); }
+.seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.transport {
+  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 12px 0 10px;
+}
+.transport .buttons { display: flex; gap: 6px; }
+.transport button {
+  font: inherit; min-width: 60px; padding: 6px 12px; border: 0; border-radius: 8px;
+  background: var(--inset); color: var(--fg); cursor: pointer;
+}
+.transport button:hover:not(:disabled) { background: var(--inset-hover); }
+.transport button:disabled { opacity: .45; cursor: default; }
+.transport button:focus-visible, .code li:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.transport #bPlay { background: var(--bit1); color: var(--bit1-ink); font-weight: 700; min-width: 72px; }
+.transport input[type=range] { flex: 1 1 240px; min-width: 160px; accent-color: var(--accent); }
+.transport output { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.transport .keys { color: var(--dim); font-size: 12px; white-space: nowrap; }
+@media (max-width: 1199px) { .transport .keys { display: none; } }
+
+.explain {
+  background: var(--panel); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px;
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 4px 28px;
+}
+.tag { display: block; font-size: 12px; color: var(--dim); }
+.explain code { font-family: var(--mono); font-size: 16px; font-weight: 700; white-space: pre-wrap; overflow-wrap: anywhere; }
+.explain .lineno { font-size: 13px; color: var(--accent-ink); font-weight: 700; margin-right: 10px; white-space: nowrap; }
+.explain p { margin: 0; font-size: 15px; }
+.explain .meta { margin-top: 4px; font-size: 12px; color: var(--dim); }
+.explain .delta { font-family: var(--mono); color: var(--accent-ink); font-weight: 700; }
+
+.grid { display: grid; gap: 14px; align-items: start; grid-template-columns: minmax(0, 1fr); grid-template-areas: "circuit" "regs" "source"; }
+@media (min-width: 1000px) {
+  .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-areas: "source circuit" "source regs"; }
+}
+@media (min-width: 1500px) {
+  .grid { grid-template-columns: minmax(0, 30fr) minmax(0, 45fr) minmax(380px, 25fr); grid-template-areas: "source circuit regs"; }
+}
+.panel { background: var(--panel); border-radius: 12px; padding: 12px 14px 14px; min-width: 0; }
+.panel h2 { font-size: 13px; color: var(--dim); margin: 0 0 8px; font-weight: 700; }
+.panel h2 small { font-weight: 400; font-size: 12px; margin-left: 8px; }
+#pSource { grid-area: source; } #pCircuit { grid-area: circuit; } #pRegs { grid-area: regs; }
+
+.code {
+  margin: 0; padding: 0; list-style: none; overflow-x: auto;
+  display: grid; grid-template-columns: minmax(max-content, 1fr);
+  font-family: var(--mono); font-size: clamp(12px, 0.78vw + 0.5px, 13.5px); line-height: 1.5; tab-size: 4;
+}
+@media (min-width: 1000px) {
+  .code { max-height: max(300px, calc(100vh - 330px)); overflow-y: auto; }
+  #pSource { position: sticky; top: 62px; }
+}
+.code li { display: flex; white-space: pre; border-radius: 4px; }
+.code .ln { flex: 0 0 2.6em; text-align: right; padding-right: 12px; color: var(--dim); user-select: none; }
+.code .tx { flex: 1 0 auto; padding-right: 10px; }
+.code .cm { color: var(--dim); }
+.code li.run { cursor: pointer; }
+.code li.run .ln { color: var(--fg); font-weight: 700; }
+.code li.run:hover { background: var(--inset); }
+.code li.cur, .code li.cur:hover { background: var(--hl); }
+.code li.cur .ln { color: var(--accent-ink); }
+.hint { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
+
+.regs { border-collapse: separate; border-spacing: 0 3px; font-size: 13px; }
+.regs th, .regs td { padding: 2px 3px; white-space: nowrap; text-align: left; }
+.regs thead th { font-size: 11px; color: var(--dim); font-weight: 400; text-align: center; }
+.regs thead th:first-child, .regs thead th:nth-child(2) { text-align: left; }
+.regs tbody th { font-family: var(--mono); font-weight: 700; padding-left: 8px; border-radius: 6px 0 0 6px; }
+.regs .val { font-family: var(--mono); padding-right: 8px; }
+.regs td:last-child { padding-right: 6px; border-radius: 0 6px 6px 0; }
+.regs tr.chg th, .regs tr.chg td { background: var(--accent-soft); }
+.bit {
+  display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center;
+  border-radius: 5px; font-family: var(--mono); font-size: 13px; background: var(--bit0); color: var(--bit0-ink);
+}
+.bit.one { background: var(--bit1); color: var(--bit1-ink); font-weight: 700; }
+.bit.none { background: transparent; color: var(--dim); opacity: .7; }
+.bit.mark { box-shadow: 0 0 0 2px var(--fg); }
+.bit.flip { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bit.mark.flip { outline-offset: 3px; }
+
+/* circuit drawings */
+.cirbox { overflow-x: auto; }
+#cir { display: block; width: 100%; min-width: 480px; height: auto; max-height: 600px; }
+#cir text { font-family: inherit; fill: var(--fg); font-size: 17px; }
+#cir text.big { font-size: 19px; }
+#cir text.small { font-size: 14.5px; }
+#cir text.dim, #cir tspan.dim { fill: var(--dim); }
+#cir text.em { fill: var(--accent-ink); font-weight: 700; }
+#cir .wire path { fill: none; stroke: var(--wire); stroke-width: 2; }
+#cir .wire path.ctl { stroke-dasharray: 4 3; stroke-width: 1.5; }
+#cir .body { fill: var(--inset); stroke: var(--fg); stroke-width: 1.5; }
+#cir .box { fill: var(--panel); stroke: var(--wire); stroke-width: 1; }
+#cir .mod { fill: none; stroke: var(--wire); stroke-width: 1.5; stroke-dasharray: 6 4; }
+#cir .comp { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
+#cir .dot { fill: var(--fg); }
+#cir .plate { stroke: var(--fg); stroke-width: 2.5; }
+#cir .plate.thick { stroke-width: 6; }
+#cir .gate { stroke: var(--wire); stroke-width: 2; }
+#cir .sw .lever { stroke: var(--dim); stroke-width: 3; stroke-linecap: round; transform: rotate(32deg); transition: transform .18s ease; }
+#cir .sw.on .lever { transform: rotate(0deg); stroke: var(--fg); }
+#cir .cur { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+#cir .cur.re { stroke: var(--recirc); }
+#cir .cur.gen { stroke: var(--recirc); stroke-dasharray: 10 8; stroke-width: 4; opacity: .8; }
+#cir .flow { fill: none; stroke: #ffffff; stroke-width: 4.5; stroke-linecap: round; stroke-dasharray: 0.1 52; animation: flow 1.3s linear infinite; }
+#cir .flow.gen { stroke-width: 3; }
+#cir use.ah { fill: var(--fg); }
+@keyframes flow { to { stroke-dashoffset: -52.1; } }
+@media (prefers-reduced-motion: reduce) { #cir .flow { animation: none; } #cir .sw .lever { transition: none; } }
+#cir .led-body { fill: var(--led-off); stroke: var(--fg); stroke-width: 1.5; stroke-linejoin: round; }
+#cir .led-bar { stroke: var(--fg); stroke-width: 3; }
+#cir .halo { fill: var(--led); opacity: 0; }
+#cir[data-lit="1"] .led-body { fill: var(--led); }
+#cir[data-lit="1"] .halo { opacity: .3; }
+#cir[data-wire="source"] .w-sink, #cir[data-wire="sink"] .w-source { display: none; }
+#cir .motor { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
+#cir .motor.on { fill: var(--accent-soft); }
+#cir .spin { fill: none; stroke: var(--accent-ink); stroke-width: 2.5; stroke-linecap: round; }
+
+/* pins view */
+.pins { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+.pin { background: var(--inset); border-radius: 8px; padding: 6px 9px; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
+.pin b { font-family: var(--mono); }
+.pin .no { color: var(--dim); font-size: 12px; text-align: right; }
+.pin .dir { font-size: 12px; color: var(--dim); }
+.pin .lv { font-family: var(--mono); font-weight: 700; text-align: right; }
+.pin.out .dir { color: var(--fg); }
+.pin.hi { background: var(--accent-soft); }
+.pin.hi .lv { color: var(--accent-ink); }
+.pin.chg { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; margin: 8px 0 0; }
+.status:empty { display: none; }
+.status div { background: var(--inset); border-radius: 8px; padding: 6px 9px; min-width: 0; }
+.status dt { font-size: 11px; color: var(--dim); }
+.status dd { margin: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+.status .on { background: var(--accent-soft); }
+.status .on dd { color: var(--accent-ink); }
+.status .re { background: var(--recirc-soft); }
+.status .re dd { color: var(--recirc-ink); }
+.flowtext { margin: 10px 0 0; font-size: 14px; min-height: 3em; }
+.flowtext:empty { min-height: 0; }
+.wave { margin: 10px 0 0; background: var(--inset); border-radius: 8px; padding: 8px 10px 6px; }
+.wave + .wave { margin-top: 6px; }
+.wave .head { margin: 0 0 4px; font-size: 12px; color: var(--dim); }
+.wave svg { display: block; width: 100%; height: 44px; }
+.wave polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.wave .cap { margin: 4px 0 0; font-size: 12px; }
+.assume { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
+.foot { margin-top: 16px; color: var(--dim); font-size: 12px; }
+.foot ul { margin: 0; padding-left: 18px; }
+.foot li { margin: 2px 0; }
+@media (max-width: 560px) { .explain { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1 id="title">PIC viewer</h1>
+      <p class="sub" id="subtitle"></p>
+    </div>
+    <div class="choices" id="choices">
+      <fieldset class="seg" id="targetSeg">
+        <legend>マイコン</legend>
+        <div class="opts" id="targetOpts"></div>
+      </fieldset>
+    </div>
+  </header>
+
+  <section class="transport" aria-label="ステップ操作">
+    <div class="buttons">
+      <button type="button" id="bFirst">最初</button>
+      <button type="button" id="bPrev">前へ</button>
+      <button type="button" id="bPlay" aria-pressed="false">再生</button>
+      <button type="button" id="bNext">次へ</button>
+      <button type="button" id="bLast">最後</button>
+    </div>
+    <input type="range" id="slider" min="0" max="1" step="1" value="0" aria-label="ステップ">
+    <output id="stepLabel" for="slider"></output>
+    <span class="keys">左右キーで前後、スペースキーで再生と停止</span>
+  </section>
+
+  <section class="explain" aria-live="polite">
+    <div>
+      <span class="tag">このステップで実行した行</span>
+      <span class="lineno" id="exNo"></span><code id="exCode"></code>
+    </div>
+    <div>
+      <span class="tag">起きたこと</span>
+      <p id="exNote"></p>
+      <div class="meta"><span id="exDelta"></span></div>
+      <div class="meta" id="exMeta"></div>
+    </div>
+  </section>
+
+  <main class="grid">
+    <section class="panel" id="pSource" aria-label="ソースコード">
+      <h2>ソースコード<small id="srcName"></small></h2>
+      <ol class="code" id="code"></ol>
+      <p class="hint">行番号が濃い行は、記録の中で止まった行。クリックすると、その行を実行した直後のステップへ移る。</p>
+    </section>
+
+    <section class="panel" id="pCircuit" aria-label="回路">
+      <h2><span id="cirTitle">回路</span><small id="cirSub"></small></h2>
+      <div class="cirbox" id="cirBox"></div>
+      <dl class="status" id="cirStatus"></dl>
+      <p class="flowtext" id="cirText"></p>
+      <div id="waveBox" hidden></div>
+      <p class="assume" id="cirAssume"></p>
+    </section>
+
+    <section class="panel" id="pRegs" aria-label="レジスタ">
+      <h2>レジスタ<small>シミュレータで読んだ値</small></h2>
+      <table class="regs">
+        <thead>
+          <tr><th scope="col">名前</th><th scope="col">値</th>
+            <th scope="col">7</th><th scope="col">6</th><th scope="col">5</th><th scope="col">4</th>
+            <th scope="col">3</th><th scope="col">2</th><th scope="col">1</th><th scope="col">0</th></tr>
+        </thead>
+        <tbody id="regBody"></tbody>
+      </table>
+      <p class="hint" id="regHint"></p>
+    </section>
+  </main>
+
+  <footer class="foot"><ul id="foot"></ul></footer>
+</div>
+
+<script type="application/json" id="data">{"title":"DC モーターを H ブリッジで動かす（motor.c）","tool":"picviewer 0.1.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"内部 8 MHz。CCP1 = RC2、CCP2 = RC1 は固定のピン。EN は RC0","fosc_hz":8000000,"source_name":"pic16f886/motor.c","source":["//***************************************************************","//\tmotor.c  DC モーターを H ブリッジ (IBT-2 / BTS7960) で動かす","//\tPIC16F886  内部クロック 8MHz  XC8","//***************************************************************","#include <xc.h>","#pragma config CONFIG1 = 0x20C4","","// 定数の宣言","#define _XTAL_FREQ\t8000000\t\t//8MHz for __delay_ms()","","// IBT-2 モジュールとの接続","//\tRC2 (CCP1) -> RPWM   正転の PWM","//\tRC1 (CCP2) -> LPWM   逆転の PWM","//\tRC0        -> R_EN と L_EN   1 で有効、0 で全オフ (惰性で停止)","#define MOTOR_EN\tPORTCbits.RC0","#define DUTY_MAX\t100\t\t\t// CCPRxL の値 (x4 = 400 / 400) = 100%","","//-----------------------------------------------------------","//\tMain関数","//-----------------------------------------------------------","void main(void)","{","\t// PICの初期化","\tOSCCON = 0b01110000;\t// 8MHzの内部クロックで動作","\tANSEL  = 0b00000000;\t// アナログ入力 AN0からAN7 を無効","\tANSELH = 0b00000000;\t// アナログ入力 AN8からAN13 を無効","","\t// 入出力の設定(0:出力 1:入力)","\tTRISA = 0b11111111;\t\t// PORTAの入力設定","\tTRISB = 0b11111111;\t\t// PORTBの入力設定","\tTRISC = 0b11111000;\t\t// RC0, RC1, RC2 を出力","\tPORTC = 0b00000000;\t\t// 出力の初期値 (EN = 0, PWM = 0)","","\t// PWM の設定  周波数 = 8MHz / (4 x 1 x 100) = 20kHz","\tPR2     = 99;\t\t\t// 周期 = (99 + 1) x 4 x 1 / 8MHz = 50us","\tT2CON   = 0b00000100;\t// Timer2 オン、プリスケール 1:1","\tCCPR1L  = 0;\t\t\t// 正転の時間幅 0","\tCCPR2L  = 0;\t\t\t// 逆転の時間幅 0","\tCCP1CON = 0b00001100;\t// CCP1 を PWM モードに (下位2ビット DC1B = 00)","\tCCP2CON = 0b00001100;\t// CCP2 を PWM モードに (下位2ビット DC2B = 00)","","\t// モーターの動作 (1秒ずつ)","\tMOTOR_EN = 1;\t\t\t// ドライバ有効 (両方の PWM が 0 なのでブレーキ)","\t__delay_ms(1000);","\tCCPR1L = 30;\t\t\t// 正転 30% (30 x 4 = 120 / 400)","\t__delay_ms(1000);","\tCCPR1L = DUTY_MAX;\t\t// 正転 100%","\t__delay_ms(1000);","\tCCPR1L = 0;\t\t\t\t// ブレーキ (下側 2個がオン)","\t__delay_ms(1000);","\tCCPR2L = 50;\t\t\t// 逆転 50% (50 x 4 = 200 / 400)","\t__delay_ms(1000);","\tCCPR2L = 0;\t\t\t\t// ブレーキ","\t__delay_ms(1000);","\tMOTOR_EN = 0;\t\t\t// ドライバ無効 (全オフ、惰性で停止)","","\t// メインループ","\twhile (1) {","\t\t// ここにプログラムを記述","\t}","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]},{"name":"T2CON","mask":127,"bits":["T2CKPS0","T2CKPS1","TMR2ON","TOUTPS0","TOUTPS1","TOUTPS2","TOUTPS3",null]},{"name":"PR2","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"TMR2","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"CCP1CON","mask":255,"bits":["CCP1M0","CCP1M1","CCP1M2","CCP1M3","DC1B0","DC1B1","P1M0","P1M1"]},{"name":"CCPR1L","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"CCP2CON","mask":63,"bits":["CCP2M0","CCP2M1","CCP2M2","CCP2M3","DC2B0","DC2B1",null,null]},{"name":"CCPR2L","mask":255,"bits":[null,null,null,null,null,null,null,null]}],"steps":[{"kind":"start","exec":null,"next":24,"addr":"0x773","cycles":9,"v":[96,31,63,255,0,0,255,0,0,0,0,0]},{"kind":"step","exec":24,"next":25,"addr":"0x777","cycles":13,"v":[112,31,63,255,0,0,255,0,0,0,0,0]},{"kind":"step","exec":25,"next":26,"addr":"0x77a","cycles":16,"v":[112,0,63,255,0,0,255,0,0,0,0,0]},{"kind":"step","exec":26,"next":29,"addr":"0x77b","cycles":17,"v":[112,0,0,255,0,0,255,0,0,0,0,0]},{"kind":"step","exec":29,"next":30,"addr":"0x77f","cycles":21,"v":[112,0,0,255,0,0,255,0,0,0,0,0]},{"kind":"step","exec":30,"next":31,"addr":"0x781","cycles":23,"v":[112,0,0,255,0,0,255,0,0,0,0,0]},{"kind":"step","exec":31,"next":32,"addr":"0x783","cycles":25,"v":[112,0,0,248,0,0,255,0,0,0,0,0]},{"kind":"step","exec":32,"next":35,"addr":"0x786","cycles":28,"v":[112,0,0,248,0,0,255,0,0,0,0,0]},{"kind":"step","exec":35,"next":36,"addr":"0x78a","cycles":32,"v":[112,0,0,248,0,0,99,0,0,0,0,0]},{"kind":"step","exec":36,"next":37,"addr":"0x78e","cycles":36,"v":[112,0,0,248,0,4,99,0,0,0,0,0]},{"kind":"step","exec":37,"next":38,"addr":"0x78f","cycles":37,"v":[112,0,0,248,0,4,99,1,0,0,0,0]},{"kind":"step","exec":38,"next":39,"addr":"0x790","cycles":38,"v":[112,0,0,248,0,4,99,2,0,0,0,0]},{"kind":"step","exec":39,"next":40,"addr":"0x792","cycles":40,"v":[112,0,0,248,0,4,99,4,12,0,0,0]},{"kind":"step","exec":40,"next":43,"addr":"0x794","cycles":42,"v":[112,0,0,248,0,4,99,6,12,0,12,0]},{"kind":"run","exec":43,"next":44,"addr":"0x795","cycles":43,"v":[112,0,0,248,1,4,99,7,12,0,12,0]},{"kind":"run","exec":45,"next":46,"addr":"0x7a6","cycles":2000047,"v":[112,0,0,248,1,4,99,11,12,30,12,0]},{"kind":"run","exec":47,"next":48,"addr":"0x7b7","cycles":4000051,"v":[112,0,0,248,5,4,99,15,12,100,12,0]},{"kind":"run","exec":49,"next":50,"addr":"0x7c7","cycles":6000054,"v":[112,0,0,248,5,4,99,18,12,0,12,0]},{"kind":"run","exec":51,"next":52,"addr":"0x7d8","cycles":8000058,"v":[112,0,0,248,1,4,99,22,12,0,12,50]},{"kind":"run","exec":53,"next":54,"addr":"0x7e8","cycles":10000061,"v":[112,0,0,248,3,4,99,25,12,0,12,0]},{"kind":"run","exec":55,"next":60,"addr":"0x7f8","cycles":12000064,"v":[112,0,0,248,0,4,99,28,12,0,12,0]}],"waves":[{"pin":"RC2","at":46,"samples":300,"start":2000047,"end":2000494,"edges":[[2000047,0],[2000137,1],[2000167,0],[2000236,1],[2000266,0],[2000337,1],[2000367,0],[2000436,1],[2000466,0]],"periods":[99,101,99],"highs":[30,30,30,30],"high_fraction":0.2685},{"pin":"RC1","at":52,"samples":600,"start":8000058,"end":8000955,"edges":[[8000058,0],[8000136,1],[8000187,0],[8000236,1],[8000286,0],[8000337,1],[8000387,0],[8000436,1],[8000486,0],[8000537,1],[8000586,0],[8000636,1],[8000687,0],[8000736,1],[8000786,0],[8000837,1],[8000886,0],[8000936,1]],"periods":[100,101,99,101,99,100,101,99],"highs":[51,50,50,50,49,51,50,49],"high_fraction":0.4671}],"notes":{"24":"内部発振器を 8 MHz に設定する。PWM の周期はこのクロックから作る。","25":"PORTA 側のアナログ入力を無効にする。","26":"PORTB 側のアナログ入力を無効にする。","29":"PORTA の全ピンを入力に設定する。","30":"PORTB の全ピンを入力に設定する。","31":"RC0（EN）、RC1（LPWM）、RC2（RPWM）を出力にする。出力データは 0 なので 3 本とも 0 V。","32":"PORTC の出力データを 0 にする。EN = 0 のままなのでドライバは全オフ。","35":"Timer2 の周期を 99 にする。周期 = (99 + 1) x 4 x 1 / 8 MHz = 50 µs。","36":"Timer2 をオンにする（プリスケール 1:1）。ここから Timer2 が 0 から 99 まで数え続ける。","37":"正転側（CCP1）の時間幅を 0 にする。","38":"逆転側（CCP2）の時間幅を 0 にする。","39":"CCP1 を PWM モードにする。RC2 の制御が PORTC から CCP1 に移る。時間幅 0 なので出力は 0 のまま。","40":"CCP2 を PWM モードにする。RC1 も同じ。","43":"EN = 1 でドライバ有効。RPWM = LPWM = 0 なので両方の下側スイッチがオン（ブレーキ）。そのまま 1 秒待つ。","45":"正転 30 %。CCPR1L = 30 で時間幅 30 x 4 = 120 / 周期 400（Tosc 単位）。新しい時間幅は次の周期（50 µs 以内）から効く。1 秒待つ。","47":"正転 100 %。時間幅 400 / 400 で RPWM は常に 1。1 秒待つ。","49":"正転の時間幅を 0 に戻す。次の周期から RPWM = 0 になり、下側 2 個がオンでブレーキ。この瞬間はまだ前の周期なので PORTC の RC2 は 1 のまま。1 秒待つ。","51":"逆転 50 %。CCPR2L = 50 で時間幅 200 / 400。電流はモーターを逆向きに流れる。1 秒待つ。","53":"逆転の時間幅を 0 に戻してブレーキ。1 秒待つ。","55":"EN = 0 でドライバ無効。4 個のスイッチが全部オフになり、モーターは惰性で止まる。"},"circuit":{"type":"hbridge","vm":7.2,"driver":"IBT-2 モジュール（Infineon BTS7960B を 2 個）","motor":"タミヤ OP.68 RS-540 スポーツチューン（53068）","r_ohm":null,"r_note":"巻線抵抗は未公表・未実測。ロータを固定して 1 A 流し、端子の電圧を測れば求まる","rpwm":{"pin":"RC2","ccp":1},"lpwm":{"pin":"RC1","ccp":2},"en":{"pin":"RC0"}},"counters":["TMR2"]},{"id":"pic16f1618","device":"PIC16F1618","summary":"内部 32 MHz。PPS で CCP1 を RC5、CCP2 を RC3 に出す。EN は RC4","fosc_hz":32000000,"source_name":"pic16f1618/motor.c","source":["//***************************************************************","//\tmotor.c  DC モーターを H ブリッジ (IBT-2 / BTS7960) で動かす","//\tPIC16F1618  内部クロック 32MHz  XC8","//***************************************************************","#include <xc.h>","#pragma config FOSC = INTOSC, WDTE = OFF, PWRTE = OFF, MCLRE = ON","#pragma config CP = OFF, BOREN = ON, CLKOUTEN = OFF, LVP = OFF, PLLEN = OFF","","// 定数の宣言","#define _XTAL_FREQ\t32000000\t//32MHz for __delay_ms()","","// IBT-2 モジュールとの接続","//\tRC5 (CCP1) -> RPWM   正転の PWM","//\tRC3 (CCP2) -> LPWM   逆転の PWM","//\tRC4        -> R_EN と L_EN   1 で有効、0 で全オフ (惰性で停止)","#define MOTOR_EN\tLATCbits.LATC4","#define DUTY_MAX\t400\t\t\t// 4 x (PR2 + 1) = 100%","","//-----------------------------------------------------------","//\tMain関数","//-----------------------------------------------------------","void main(void)","{","\t// PICの初期化","\tOSCCON = 0b11110000;\t// 内部 8MHz x 4倍 PLL = 32MHz","\tANSELA = 0b00000000;\t// PORTA のアナログ入力を無効","\tANSELB = 0b00000000;\t// PORTB のアナログ入力を無効","\tANSELC = 0b00000000;\t// PORTC のアナログ入力を無効","","\t// 入出力の設定(0:出力 1:入力)","\tTRISA = 0b11111111;\t\t// PORTAの入力設定","\tTRISB = 0b11111111;\t\t// PORTBの入力設定","\tTRISC = 0b11000111;\t\t// RC3, RC4, RC5 を出力","\tLATC  = 0b00000000;\t\t// 出力の初期値 (EN = 0, PWM = 0)","","\t// PWM の設定  周波数 = 32MHz / (4 x 4 x 100) = 20kHz","\tT2CLKCON = 0b00000000;\t// Timer2 のクロックは Fosc/4","\tPR2      = 99;\t\t\t// 周期 = (99 + 1) x 4 x 4 / 32MHz = 50us","\tT2CON    = 0b10100000;\t// Timer2 オン、プリスケール 1:4","\tCCPTMRS  = 0b00000000;\t// CCP1, CCP2 とも Timer2 を使う","\tCCPR1    = 0;\t\t\t// 正転の時間幅 0","\tCCPR2    = 0;\t\t\t// 逆転の時間幅 0","\tCCP1CON  = 0b10001100;\t// CCP1 有効、PWM モード、右詰め","\tCCP2CON  = 0b10001100;\t// CCP2 有効、PWM モード、右詰め","\tRC5PPS   = 0b01100;\t\t// RC5 に CCP1 の出力を出す","\tRC3PPS   = 0b01101;\t\t// RC3 に CCP2 の出力を出す","","\t// モーターの動作 (1秒ずつ)","\tMOTOR_EN = 1;\t\t\t// ドライバ有効 (両方の PWM が 0 なのでブレーキ)","\t__delay_ms(1000);","\tCCPR1 = 120;\t\t\t// 正転 30% (120 / 400)","\t__delay_ms(1000);","\tCCPR1 = DUTY_MAX;\t\t// 正転 100%","\t__delay_ms(1000);","\tCCPR1 = 0;\t\t\t\t// ブレーキ (下側 2個がオン)","\t__delay_ms(1000);","\tCCPR2 = 200;\t\t\t// 逆転 50% (200 / 400)","\t__delay_ms(1000);","\tCCPR2 = 0;\t\t\t\t// ブレーキ","\t__delay_ms(1000);","\tMOTOR_EN = 0;\t\t\t// ドライバ無効 (全オフ、惰性で停止)","","\t// メインループ","\twhile (1) {","\t\t// ここにプログラムを記述","\t}","}"],"pack":{"name":"PIC12-16F1xxx_DFP","version":"1.9.258"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","vdd":5.0,"pins":[["VDD"],["RA5","CLKIN"],["RA4","AN3","CLKOUT"],["RA3","VPP","nMCLR","MCLR"],["RC5","HIDC5"],["RC4","HIDC4"],["RC3","AN7","C1IN3-","C2IN3-"],["RC6","AN8"],["RC7","AN9"],["RB7"],["RB6"],["RB5","AN11"],["RB4","AN10"],["RC2","AN6","C1IN2-","C2IN2-"],["RC1","AN5","C1IN1-","C2IN1-"],["RC0","AN4","C2IN+"],["RA2","AN2","ZCDIN"],["RA1","AN1","C2IN0-","C1IN0-","VREF+","ICSPCLK"],["RA0","AN0","C1IN+","DACOUT","ICSPDAT"],["VSS"]],"regs":[{"name":"OSCCON","mask":251,"bits":["SCS0","SCS1",null,"IRCF0","IRCF1","IRCF2","IRCF3","SPLLEN"]},{"name":"ANSELC","mask":207,"bits":["ANSC0","ANSC1","ANSC2","ANSC3",null,null,"ANSC6","ANSC7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"LATC","mask":255,"bits":["LATC0","LATC1","LATC2","LATC3","LATC4","LATC5","LATC6","LATC7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]},{"name":"T2CLKCON","mask":15,"bits":["CS0","CS1","CS2","CS3",null,null,null,null]},{"name":"T2CON","mask":255,"bits":["OUTPS0","OUTPS1","OUTPS2","OUTPS3","CKPS0","CKPS1","CKPS2","ON"]},{"name":"T2PR","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"T2TMR","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"CCPTMRS","mask":255,"bits":["CCP1TSEL0","CCP1TSEL1","CCP2TSEL0","CCP2TSEL1","P3TSEL0","P3TSEL1","P4TSEL0","P4TSEL1"]},{"name":"CCP1CON","mask":191,"bits":["MODE0","MODE1","MODE2","MODE3","FMT","OUT",null,"EN"]},{"name":"CCPR1H","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"CCPR1L","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"CCP2CON","mask":191,"bits":["MODE0","MODE1","MODE2","MODE3","FMT","OUT",null,"EN"]},{"name":"CCPR2H","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"CCPR2L","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"RC5PPS","mask":31,"bits":["RC5PPS0","RC5PPS1","RC5PPS2","RC5PPS3","RC5PPS4",null,null,null]},{"name":"RC3PPS","mask":31,"bits":["RC3PPS0","RC3PPS1","RC3PPS2","RC3PPS3","RC3PPS4",null,null,null]}],"steps":[{"kind":"start","exec":null,"next":25,"addr":"0x774","cycles":10,"v":[56,207,255,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":25,"next":26,"addr":"0x777","cycles":13,"v":[240,207,255,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":26,"next":27,"addr":"0x779","cycles":15,"v":[240,207,255,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":27,"next":28,"addr":"0x77a","cycles":16,"v":[240,207,255,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":28,"next":31,"addr":"0x77b","cycles":17,"v":[240,0,255,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":31,"next":32,"addr":"0x77e","cycles":20,"v":[240,0,255,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":32,"next":33,"addr":"0x780","cycles":22,"v":[240,0,255,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":33,"next":34,"addr":"0x782","cycles":24,"v":[240,0,199,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":34,"next":37,"addr":"0x784","cycles":26,"v":[240,0,199,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":37,"next":38,"addr":"0x786","cycles":28,"v":[240,0,199,0,0,0,0,255,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":38,"next":39,"addr":"0x788","cycles":30,"v":[240,0,199,0,0,0,0,99,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":39,"next":40,"addr":"0x78a","cycles":32,"v":[240,0,199,0,0,0,160,99,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":40,"next":41,"addr":"0x78c","cycles":34,"v":[240,0,199,0,0,0,160,99,0,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":41,"next":42,"addr":"0x78e","cycles":36,"v":[240,0,199,0,0,0,160,99,1,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":42,"next":43,"addr":"0x790","cycles":38,"v":[240,0,199,0,0,0,160,99,1,0,0,0,0,0,0,0,0,0]},{"kind":"step","exec":43,"next":44,"addr":"0x792","cycles":40,"v":[240,0,199,0,0,0,160,99,2,0,140,0,0,0,0,0,0,0]},{"kind":"step","exec":44,"next":45,"addr":"0x794","cycles":42,"v":[240,0,199,0,0,0,160,99,2,0,140,0,0,140,0,0,0,0]},{"kind":"step","exec":45,"next":46,"addr":"0x797","cycles":45,"v":[240,0,199,0,0,0,160,99,3,0,140,0,0,140,0,0,12,0]},{"kind":"step","exec":46,"next":49,"addr":"0x799","cycles":47,"v":[240,0,199,0,0,0,160,99,3,0,140,0,0,140,0,0,12,13]},{"kind":"run","exec":49,"next":50,"addr":"0x79b","cycles":49,"v":[240,0,199,16,16,0,160,99,4,0,140,0,0,140,0,0,12,13]},{"kind":"run","exec":51,"next":52,"addr":"0x7ac","cycles":8000054,"v":[240,0,199,16,16,0,160,99,5,0,140,0,120,140,0,0,12,13]},{"kind":"run","exec":53,"next":54,"addr":"0x7bd","cycles":16000059,"v":[240,0,199,16,48,0,160,99,6,0,172,1,144,140,0,0,12,13]},{"kind":"run","exec":55,"next":56,"addr":"0x7cc","cycles":24000062,"v":[240,0,199,16,48,0,160,99,7,0,172,0,0,140,0,0,12,13]},{"kind":"run","exec":57,"next":58,"addr":"0x7dd","cycles":32000067,"v":[240,0,199,16,16,0,160,99,8,0,140,0,0,140,0,200,12,13]},{"kind":"run","exec":59,"next":60,"addr":"0x7ec","cycles":40000070,"v":[240,0,199,16,24,0,160,99,9,0,140,0,0,172,0,0,12,13]},{"kind":"run","exec":61,"next":66,"addr":"0x7fa","cycles":48000072,"v":[240,0,199,0,0,0,160,99,10,0,140,0,0,140,0,0,12,13]}],"waves":[{"pin":"RC5","at":52,"samples":900,"start":8000054,"end":8001402,"edges":[[8000054,0],[8000428,1],[8000553,0],[8000829,1],[8000952,0],[8001228,1],[8001353,0]],"periods":[401,399],"highs":[125,123,125],"high_fraction":0.2767},{"pin":"RC3","at":58,"samples":1000,"start":32000067,"end":32001565,"edges":[[32000067,0],[32000429,1],[32000632,0],[32000828,1],[32001032,0],[32001228,1],[32001432,0]],"periods":[399,400],"highs":[203,204,204],"high_fraction":0.4079}],"notes":{"25":"内部発振器 8 MHz に 4 倍 PLL をかけて 32 MHz にする。命令は 1 秒に 8 M 回。","26":"PORTA のアナログ入力を無効にする。","27":"PORTB のアナログ入力を無効にする。","28":"PORTC のアナログ入力を無効にする。RC3 は AN7 と兼用。","31":"PORTA の全ピンを入力に設定する。","32":"PORTB の全ピンを入力に設定する。","33":"RC3（LPWM）、RC4（EN）、RC5（RPWM）を出力にする。出力データは 0 なので 3 本とも 0 V。","34":"PORTC の出力ラッチを 0 にする。EN = 0 のままなのでドライバは全オフ。","37":"Timer2 のクロックを Fosc/4（8 MHz）にする。","38":"Timer2 の周期を 99 にする。周期 = (99 + 1) x 4 x 4 / 32 MHz = 50 µs。","39":"Timer2 をオンにする（プリスケール 1:4）。ここから Timer2 が 0 から 99 まで数え続ける。","40":"CCP1 と CCP2 の時間の基準に Timer2 を選ぶ。","41":"正転側（CCP1）の時間幅を 0 にする。","42":"逆転側（CCP2）の時間幅を 0 にする。","43":"CCP1 を有効にして PWM モードにする。時間幅 0 なので出力は 0 のまま。","44":"CCP2 を有効にして PWM モードにする。","45":"PPS で RC5 の出力元を CCP1 にする。ここで RC5 の制御がラッチから CCP1 に移る。","46":"PPS で RC3 の出力元を CCP2 にする。","49":"EN = 1 でドライバ有効。RPWM = LPWM = 0 なので両方の下側スイッチがオン（ブレーキ）。そのまま 1 秒待つ。","51":"正転 30 %。CCPR1 = 120 で時間幅 120 / 周期 400（4 Tosc 単位）。新しい時間幅は次の周期（50 µs 以内）から効く。1 秒待つ。","53":"正転 100 %。時間幅 400 / 400 で RPWM は常に 1。1 秒待つ。","55":"正転の時間幅を 0 に戻す。次の周期から RPWM = 0 になり、下側 2 個がオンでブレーキ。1 秒待つ。","57":"逆転 50 %。CCPR2 = 200 で時間幅 200 / 400。電流はモーターを逆向きに流れる。1 秒待つ。","59":"逆転の時間幅を 0 に戻してブレーキ。1 秒待つ。","61":"EN = 0 でドライバ無効。4 個のスイッチが全部オフになり、モーターは惰性で止まる。"},"circuit":{"type":"hbridge","vm":7.2,"driver":"IBT-2 モジュール（Infineon BTS7960B を 2 個）","motor":"タミヤ OP.68 RS-540 スポーツチューン（53068）","r_ohm":null,"r_note":"巻線抵抗は未公表・未実測。ロータを固定して 1 A 流し、端子の電圧を測れば求まる","rpwm":{"pin":"RC5","ccp":1,"pps":{"reg":"RC5PPS","code":12}},"lpwm":{"pin":"RC3","ccp":2,"pps":{"reg":"RC3PPS","code":13}},"en":{"pin":"RC4"}},"counters":["T2TMR"]}]}</script>
+<script>
+window.PicViewer = { circuits: {}, util: {} };
+/* hbridge: a DC motor on an H-bridge driver with RPWM / LPWM / EN inputs (IBT-2 style).
+   Shows the four switches, the current path in the PWM on and off periods, and the duty from the CCP registers. */
+(() => {
+  'use strict';
+
+  const SVG = `
+<svg id="cir" viewBox="0 0 820 480" role="img" aria-label="H ブリッジのモータードライバと電流の経路">
+  <defs><path id="ah" d="M-6 -6.5 L7 0 L-6 6.5 Z"/></defs>
+  <g class="wire">
+    <path d="M60 212 V40 H140 M190 40 H280 V110"/>
+    <path d="M60 254 V445 H280 V400"/>
+    <path d="M280 110 H560 M280 400 H560"/>
+    <path d="M330 110 V135 M330 175 V305 M330 345 V400"/>
+    <path d="M560 110 V135 M560 175 V305 M560 345 V400"/>
+    <path d="M330 240 H410 M480 240 H560"/>
+    <path class="ctl" d="M235 300 H315 V155 M315 300 V325 M235 330 H300 V412 H545 V155 M545 412 V325"/>
+    <path class="ctl" d="M235 360 H262"/>
+  </g>
+  <rect class="mod" x="280" y="78" width="380" height="350" rx="8"/>
+  <text class="small dim" x="292" y="97" id="hDriver">ドライバ</text>
+  <g id="gCur"></g>
+  <rect class="comp" x="140" y="31" width="50" height="18" rx="3"/>
+  <line x1="140" y1="40" x2="190" y2="40" stroke="currentColor" stroke-width="1.5"/>
+  <text class="small dim" x="128" y="24">ヒューズ</text>
+  <line class="plate" x1="42" y1="212" x2="78" y2="212"/>
+  <line class="plate thick" x1="50" y1="226" x2="70" y2="226"/>
+  <line class="plate" x1="42" y1="240" x2="78" y2="240"/>
+  <line class="plate thick" x1="50" y1="254" x2="70" y2="254"/>
+  <text class="big" x="22" y="210">+</text>
+  <text class="big" x="25" y="266">-</text>
+  <text x="84" y="223">電池</text>
+  <text x="84" y="245" id="hSupply">7.2 V</text>
+  <text class="dim small" x="200" y="30">B+（モーター電源）</text>
+  <text class="dim small" x="200" y="466">B-（GND）</text>
+  <g class="sw" id="q1"><line class="gate" x1="322" y1="145" x2="322" y2="165"/><line class="lever" x1="330" y1="175" x2="330" y2="135" style="transform-origin:330px 175px"/><circle class="dot" cx="330" cy="135" r="3"/><circle class="dot" cx="330" cy="175" r="3"/><text class="small" x="340" y="150">Q1 上側</text><text class="small dim" x="340" y="168" id="q1t">オフ</text></g>
+  <g class="sw" id="q2"><line class="gate" x1="322" y1="315" x2="322" y2="335"/><line class="lever" x1="330" y1="345" x2="330" y2="305" style="transform-origin:330px 345px"/><circle class="dot" cx="330" cy="305" r="3"/><circle class="dot" cx="330" cy="345" r="3"/><text class="small" x="340" y="320">Q2 下側</text><text class="small dim" x="340" y="338" id="q2t">オフ</text></g>
+  <g class="sw" id="q3"><line class="gate" x1="552" y1="145" x2="552" y2="165"/><line class="lever" x1="560" y1="175" x2="560" y2="135" style="transform-origin:560px 175px"/><circle class="dot" cx="560" cy="135" r="3"/><circle class="dot" cx="560" cy="175" r="3"/><text class="small" x="570" y="150">Q3 上側</text><text class="small dim" x="570" y="168" id="q3t">オフ</text></g>
+  <g class="sw" id="q4"><line class="gate" x1="552" y1="315" x2="552" y2="335"/><line class="lever" x1="560" y1="345" x2="560" y2="305" style="transform-origin:560px 345px"/><circle class="dot" cx="560" cy="305" r="3"/><circle class="dot" cx="560" cy="345" r="3"/><text class="small" x="570" y="320">Q4 下側</text><text class="small dim" x="570" y="338" id="q4t">オフ</text></g>
+  <circle class="dot" cx="330" cy="240" r="3.5"/><circle class="dot" cx="560" cy="240" r="3.5"/>
+  <text class="small dim" x="294" y="236">M+</text>
+  <text class="small dim" x="568" y="236">M-</text>
+  <circle class="dot" cx="280" cy="110" r="4.5"/><circle class="dot" cx="280" cy="400" r="4.5"/>
+  <circle class="motor" id="motor" cx="445" cy="240" r="35"/>
+  <text class="big" x="436" y="247">M</text>
+  <path class="spin" id="spin" d=""/>
+  <text class="small dim" x="410" y="296">モーター</text>
+  <rect class="body" x="88" y="262" width="147" height="140" rx="6"/>
+  <text x="96" y="283" id="hDev" font-weight="700">PIC</text>
+  <text class="small" x="96" y="306" id="hRpwm">RPWM</text>
+  <text class="small" x="96" y="336" id="hLpwm">LPWM</text>
+  <text class="small" x="96" y="366" id="hEn">EN</text>
+  <text class="small dim" x="96" y="392">5 V 系（別電源）</text>
+  <text class="small dim" x="240" y="296">RPWM</text>
+  <text class="small dim" x="240" y="326">LPWM</text>
+  <text class="small dim" x="240" y="356">EN</text>
+  <text class="small dim" x="266" y="372">R_EN, L_EN</text>
+</svg>`;
+
+  const PATHS = {
+    fwdOn: [[60, 212], [60, 40], [280, 40], [280, 110], [330, 110], [330, 240], [560, 240], [560, 400], [280, 400], [280, 445], [60, 445], [60, 254]],
+    fwdOff: [[330, 240], [560, 240], [560, 400], [330, 400], [330, 240]],
+    revOn: [[60, 212], [60, 40], [280, 40], [280, 110], [560, 110], [560, 240], [330, 240], [330, 400], [280, 400], [280, 445], [60, 445], [60, 254]],
+    revOff: [[560, 240], [330, 240], [330, 400], [560, 400], [560, 240]],
+    gen: [[330, 240], [560, 240], [560, 400], [330, 400], [330, 240]],
+  };
+  const MOTOR_BOX = [[400, 230, 490, 250]];
+
+  // duty in 1/(4 x (PR+1)) steps and whether the module is in PWM mode, for both CCP generations
+  function readCcp(t, R, n) {
+    const con = R[`CCP${n}CON`];
+    const lo = R[`CCPR${n}L`];
+    if (con === undefined || lo === undefined) return null;
+    const reg = t.regs.find((r) => r.name === `CCP${n}CON`);
+    const newStyle = Boolean(reg && reg.bits.some((b) => b && /FMT$/.test(b)));
+    if (newStyle) {                       // EN, FMT, MODE<3:0> (e.g. PIC16F1618)
+      const hi = R[`CCPR${n}H`];
+      if (hi === undefined) return null;
+      const duty = (con >> 4) & 1 ? (hi << 2) | (lo >> 6) : ((hi << 8) | lo) & 0x3ff;
+      return { duty, pwm: (con & 0x80) !== 0 && (con & 0x0c) === 0x0c };
+    }
+    return { duty: (lo << 2) | ((con >> 4) & 3), pwm: (con & 0x0c) === 0x0c };   // DCxB<1:0>, CCPxM<3:0> (e.g. PIC16F886)
+  }
+
+  function readTimer2(R) {
+    if (R.T2PR !== undefined && R.T2CON !== undefined) {   // Timer2 with ON / CKPS<2:0> / T2PR
+      const clockOk = R.T2CLKCON === undefined || (R.T2CLKCON & 0x0f) === 0;
+      return { on: (R.T2CON >> 7) & 1, presc: 1 << ((R.T2CON >> 4) & 7), pr: R.T2PR, clockOk };
+    }
+    if (R.PR2 !== undefined && R.T2CON !== undefined) {    // TMR2ON / T2CKPS<1:0> / PR2
+      return { on: (R.T2CON >> 2) & 1, presc: [1, 4, 16, 16][R.T2CON & 3], pr: R.PR2, clockOk: true };
+    }
+    return null;
+  }
+
+  function bridge(ctx) {
+    const { t, cfg, R, U, opts, instrHz } = ctx;
+    const tm = readTimer2(R);
+    const c1 = readCcp(t, R, cfg.rpwm.ccp);
+    const c2 = readCcp(t, R, cfg.lpwm.ccp);
+    const enPb = U.portBit(cfg.en.pin);
+    const enReg = enPb ? U.latchOf(R, enPb.port) : undefined;
+    if (!tm || !c1 || !c2 || enReg === undefined) return null;
+    const routed = (side) => !side.pps || R[side.pps.reg] === undefined || R[side.pps.reg] === side.pps.code;
+    const en = (enReg >> enPb.bit) & 1;
+    const d1 = c1.pwm && tm.on && routed(cfg.rpwm) ? c1.duty : 0;
+    const d2 = c2.pwm && tm.on && routed(cfg.lpwm) ? c2.duty : 0;
+    const dmax = 4 * (tm.pr + 1);
+    const q = { q1: false, q2: false, q3: false, q4: false };
+    let state, path = null, duty = 0, dir = 0;
+    if (!en) {
+      state = 'coast';
+    } else if (d1 > 0 && d2 > 0) {
+      state = 'invalid'; q.q1 = q.q3 = true;
+    } else if (d1 === 0 && d2 === 0) {
+      state = 'brake'; q.q2 = q.q4 = true; path = 'gen';
+    } else {
+      dir = d1 > 0 ? 1 : -1;
+      duty = Math.min(1, (d1 || d2) / dmax);
+      if (opts.phase === 'on' || duty >= 1) {
+        state = dir > 0 ? 'fwd' : 'rev';
+        if (dir > 0) { q.q1 = q.q4 = true; path = 'fwdOn'; } else { q.q3 = q.q2 = true; path = 'revOn'; }
+      } else {
+        state = dir > 0 ? 'fwdOff' : 'revOff';
+        q.q2 = q.q4 = true;
+        path = dir > 0 ? 'fwdOff' : 'revOff';
+      }
+    }
+    const freq = tm.on && tm.clockOk && instrHz ? instrHz / (tm.presc * (tm.pr + 1)) : 0;
+    return { q, state, path, duty, dir, dmax, d1, d2, freq, timerOn: Boolean(tm.on), clockOk: tm.clockOk };
+  }
+
+  window.PicViewer.circuits.hbridge = {
+    title: '回路と電流',
+    options: [{
+      key: 'phase', legend: 'PWM のどの期間を描くか', default: 'on',
+      choices: [{ value: 'on', label: 'オン期間（電池から流れる）' }, { value: 'off', label: 'オフ期間（下側で還流）' }],
+    }],
+    setup(ctx) {
+      const { t, cfg, box, U } = ctx;
+      if (!(cfg.rpwm && cfg.lpwm && cfg.en && U.portBit(cfg.en.pin))) {
+        box.append(U.el('p', 'hint', 'circuit に rpwm（pin と ccp）、lpwm（pin と ccp）、en（pin）を書く。'));
+        return {};
+      }
+      box.innerHTML = SVG;
+      const svg = box.querySelector('#cir');
+      const set = (id, s) => { svg.querySelector('#' + id).textContent = s; };
+      const no = (pin) => U.pinsWith(t, pin).join('、');
+      const vm = cfg.vm || 7.2;
+      set('hDev', t.device);
+      set('hRpwm', `${cfg.rpwm.pin} CCP${cfg.rpwm.ccp}  ${no(cfg.rpwm.pin)} 番`);
+      set('hLpwm', `${cfg.lpwm.pin} CCP${cfg.lpwm.ccp}  ${no(cfg.lpwm.pin)} 番`);
+      set('hEn', `${cfg.en.pin}  ${no(cfg.en.pin)} 番`);
+      set('hSupply', `${U.num(vm)} V`);
+      set('hDriver', cfg.driver || 'H ブリッジのドライバ');
+      const enPb = U.portBit(cfg.en.pin);
+      const current = cfg.r_ohm
+        ? `巻線抵抗 ${cfg.r_ohm} Ω から、起動時と拘束時の電流は約 ${Math.round(vm / cfg.r_ohm)} A。`
+        : `電流の大きさは出していない（${cfg.r_note || 'モーターの巻線抵抗が分かれば circuit.r_ohm に書く'}）。`;
+      return {
+        sub: [cfg.driver, `電池 ${U.num(vm)} V`, cfg.motor].filter(Boolean).join('、'),
+        assume: `平均電圧はデューティと電池の電圧の積。${current}`,
+        regHint: 'CCPRx が PWM の時間幅、PR2（新しい型では T2PR）が周期、T2CON が Timer2 の設定。太い枠のビットが EN のピン。',
+        marks: ['PORT', 'LAT'].map((p) => ({ reg: p + enPb.port, bit: enPb.bit })),
+        foot: [
+          'H ブリッジの 4 個のスイッチは、ドライバの上側と下側の MOSFET。RPWM = 1 で Q1、LPWM = 1 で Q3 がオンになり、0 のときは同じ側の下側（Q2、Q4）がオン。EN = 0 で 4 個ともオフ。',
+          'シミュレータが見ているのは PIC のピンまで。ドライバとモーターの振る舞いは、この入力から決めた想定。',
+        ],
+      };
+    },
+    update(ctx) {
+      const { cfg, box, st, U, fmtTime, instrHz } = ctx;
+      const svg = box.querySelector('#cir');
+      if (!svg) return {};
+      const B = bridge(ctx);
+      if (!B) return { text: 'CCPxCON、CCPRxL（新しい型は CCPRxH も）、T2CON、PR2 か T2PR、EN のピンの PORT か LAT を registers に入れると描ける。' };
+      ['q1', 'q2', 'q3', 'q4'].forEach((k) => {
+        svg.querySelector('#' + k).classList.toggle('on', B.q[k]);
+        const tx = svg.querySelector('#' + k + 't');
+        tx.textContent = B.q[k] ? 'オン' : 'オフ';
+        tx.setAttribute('class', B.q[k] ? 'small em' : 'small dim');
+      });
+      const g = svg.querySelector('#gCur');
+      g.replaceChildren();
+      if (B.path) {
+        const cls = B.path === 'gen' ? 'gen' : B.path.endsWith('Off') ? 're' : '';
+        U.drawPath(g, PATHS[B.path], cls, { arrows: B.path === 'gen' ? false : 'auto', skip: MOTOR_BOX });
+      }
+      svg.querySelector('#motor').classList.toggle('on', B.dir !== 0);
+      svg.querySelector('#spin').setAttribute('d', B.dir > 0
+        ? 'M418 262 A36 36 0 0 1 418 218 M418 218 l-10 4 M418 218 l2 10'
+        : B.dir < 0 ? 'M472 218 A36 36 0 0 1 472 262 M472 262 l10 -4 M472 262 l-2 -10' : '');
+
+      const vm = cfg.vm || 7.2;
+      const pct = Math.round(B.duty * 100);
+      const periodUs = B.freq ? 1e6 / B.freq : null;
+      const share = (f) => (periodUs ? `1 周期 ${U.num(periodUs, 0)} µs のうち ${U.num(periodUs * f, 0)} µs がこの状態。` : '');
+      const label = {
+        coast: 'ドライバ無効（4 個ともオフ）', brake: 'ブレーキ（下側 2 個がオン）', invalid: '両方の PWM が入っている',
+        fwd: `正転（${pct} %）`, rev: `逆転（${pct} %）`, fwdOff: `正転（${pct} %）のオフ期間`, revOff: `逆転（${pct} %）のオフ期間`,
+      }[B.state];
+      const tone = B.state === 'fwd' || B.state === 'rev' ? 'on' : B.state === 'fwdOff' || B.state === 'revOff' ? 're' : '';
+      const text = {
+        coast: 'EN = 0 なのでドライバは待機。4 個のスイッチが全部オフで、モーターには何もつながっていない。回っていれば惰性で止まる。',
+        brake: 'RPWM と LPWM が両方 0 なので、下側の Q2 と Q4 がオン。電池からは流れない。モーターが回っていれば、発電した電流が Q2 と Q4 を通って回り、制動がかかる（点線）。',
+        fwd: `RPWM = 1 の間は、電池のプラス側、ヒューズ、B+、Q1、M+、モーター、M-、Q4、B-、電池のマイナス側の順に流れる。LPWM = 0 なので Q4 がオン。この向きを正転とする。${pct >= 100 ? '100 % なのでオフ期間は無い。' : share(B.duty)}`,
+        rev: `LPWM = 1 の間は、電池のプラス側、ヒューズ、B+、Q3、M-、モーター、M+、Q2、B-、電池のマイナス側の順に流れる。RPWM = 0 なので Q2 がオン。正転と逆向き。${pct >= 100 ? '100 % なのでオフ期間は無い。' : share(B.duty)}`,
+        fwdOff: `RPWM = 0 の間は Q1 が切れて Q2 がオンになり、Q4 もオン。巻線はコイルなので電流は急に止まらず、M+、モーター、M-、Q4、Q2 と下側 2 個を通って回り続ける（還流。ブレーキと同じ経路）。${share(1 - B.duty)}`,
+        revOff: `LPWM = 0 の間は Q3 が切れて Q4 がオンになり、Q2 もオン。電流は M-、モーター、M+、Q2、Q4 と下側 2 個を通って回り続ける（還流）。${share(1 - B.duty)}`,
+        invalid: 'RPWM と LPWM が同時に 1。Q1 と Q3 がオンで M+ と M- が同じ電圧になり、モーターは止まる。使わない組み合わせ。',
+      }[B.state];
+      const freqText = !B.timerOn ? 'Timer2 停止' : !B.clockOk ? 'Timer2 のクロックが Fosc/4 以外' : B.freq ? `${U.num(B.freq / 1000)} kHz` : '-';
+      return {
+        status: [
+          { label: '状態', value: label, tone },
+          { label: 'デューティ', value: B.dir ? `${pct} %（${B.d1 || B.d2} / ${B.dmax}）` : '-', tone },
+          { label: 'PWM 周波数', value: freqText },
+          { label: 'モーターの平均電圧', value: B.dir ? `約 ${U.num(B.duty * vm)} V` : '0 V', tone },
+          { label: 'リセットからの時間', value: instrHz ? fmtTime(st.cycles / instrHz) : '-' },
+        ],
+        text,
+        probe: { state: B.state, duty: pct, q: ['q1', 'q2', 'q3', 'q4'].map((k) => (B.q[k] ? '1' : '0')).join('') },
+      };
+    },
+  };
+})();
+
+/* pins: the default view. Direction and value of every port pin, from TRISx and PORTx / LATx. */
+(() => {
+  'use strict';
+
+  function pinNames(t, cfg) {
+    if (Array.isArray(cfg.pins) && cfg.pins.length) return cfg.pins.map((p) => String(p).toUpperCase());
+    const out = [];
+    t.regs.forEach((r) => {
+      const m = /^TRIS([A-Z])$/.exec(r.name);
+      if (!m) return;
+      for (let b = 0; b < 8; b++) if ((r.mask >> b) & 1) out.push(`R${m[1]}${b}`);
+    });
+    return out;
+  }
+
+  window.PicViewer.circuits.pins = {
+    title: 'ピン',
+    options: [],
+    setup(ctx) {
+      const { t, cfg, box, U } = ctx;
+      const names = pinNames(t, cfg).filter((n) => U.portBit(n));
+      if (!names.length) {
+        box.append(U.el('p', 'hint', 'ピンを出すには、TRISx と PORTx（または LATx）を registers に入れる。'));
+        return {};
+      }
+      const grid = U.el('div', 'pins');
+      names.forEach((name) => {
+        const card = U.el('div', 'pin');
+        card.dataset.pin = name;
+        const no = U.pinsWith(t, name);
+        card.append(U.el('b', '', name), U.el('span', 'no', no.length ? `${no.join('、')} 番` : ''),
+          U.el('span', 'dir', ''), U.el('span', 'lv', ''));
+        grid.append(card);
+      });
+      box.append(grid);
+      return {
+        sub: 'TRIS と PORT / LAT から見た、各ピンの向きと値',
+        assume: 'TRIS のビットが 0 なら出力、1 なら入力。値は PORT のビット（PORT を読んでいなければ LAT）。オレンジの枠は直前のステップから変わったピン。',
+      };
+    },
+    update(ctx) {
+      const { box, R, P, U } = ctx;
+      const outs = [];
+      box.querySelectorAll('.pin').forEach((card) => {
+        const pb = U.portBit(card.dataset.pin);
+        const read = (regs, prefix) => (regs && regs[prefix + pb.port] !== undefined ? (regs[prefix + pb.port] >> pb.bit) & 1 : null);
+        const level = (regs) => { const v = read(regs, 'PORT'); return v !== null ? v : read(regs, 'LAT'); };
+        const dir = read(R, 'TRIS');
+        const lv = level(R);
+        card.classList.toggle('out', dir === 0);
+        card.classList.toggle('hi', lv === 1);
+        card.classList.toggle('chg', Boolean(P) && (read(P, 'TRIS') !== dir || level(P) !== lv));
+        card.querySelector('.dir').textContent = dir === null ? '?' : (dir ? '入力' : '出力');
+        card.querySelector('.lv').textContent = lv === null ? '?' : String(lv);
+        if (dir === 0) outs.push(`${card.dataset.pin} = ${lv}`);
+      });
+      return { text: outs.length ? `出力のピン: ${outs.join('、')}` : '出力のピンは無い（すべて入力）。', probe: { outputs: outs } };
+    },
+  };
+})();
+
+/* PIC viewer core: step controls, source, registers and explanation.
+   A circuit view plugs in through PicViewer.circuits[type] = { title, options, setup(ctx), update(ctx) }. */
+(() => {
+  'use strict';
+  const PV = window.PicViewer;
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const NS = 'http://www.w3.org/2000/svg';
+  const PLAY_MS = 1400;
+  const $ = (id) => document.getElementById(id);
+  const S = { t: 0, step: 0, opts: {}, timer: null, probe: null };
+
+  // ---------------- helpers, also used by the circuits
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const svgEl = (tag, attrs = {}) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+  };
+  const num = (v, d = 1) => Number(v).toFixed(d);
+  const hex = (v) => '0x' + v.toString(16).toUpperCase().padStart(2, '0');
+  const pinsWith = (t, fn) => {
+    const f = fn.toUpperCase();
+    const out = [];
+    t.pins.forEach((names, i) => { if (names.some((n) => n.toUpperCase() === f)) out.push(i + 1); });
+    return out;
+  };
+  const portBit = (pin) => {
+    const m = /^R([A-Z])(\d)$/i.exec(pin || '');
+    return m ? { port: m[1].toUpperCase(), bit: Number(m[2]) } : null;
+  };
+  // the output latch of a port: LATx when it was read, PORTx otherwise
+  const latchOf = (R, port) => (R['LAT' + port] !== undefined ? R['LAT' + port] : R['PORT' + port]);
+  // a current path: an orange line, moving dots, and arrows (explicit [x, y, angle] or along long segments)
+  function drawPath(g, pts, cls, opt = {}) {
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
+    g.append(svgEl('path', { class: 'cur ' + cls, d }));
+    g.append(svgEl('path', { class: 'flow ' + cls, d }));
+    const arrow = (x, y, ang) => g.append(svgEl('use', { href: '#ah', class: 'ah', transform: `translate(${x} ${y}) rotate(${ang})` }));
+    if (Array.isArray(opt.arrows)) { opt.arrows.forEach(([x, y, a]) => arrow(x, y, a)); return; }
+    if (opt.arrows === false) return;
+    pts.slice(1).forEach((q, i) => {
+      const p = pts[i];
+      if (Math.hypot(q[0] - p[0], q[1] - p[1]) < 70) return;
+      const mx = (p[0] + q[0]) / 2;
+      const my = (p[1] + q[1]) / 2;
+      if ((opt.skip || []).some(([x0, y0, x1, y1]) => mx >= x0 && mx <= x1 && my >= y0 && my <= y1)) return;
+      arrow(mx, my, Math.atan2(q[1] - p[1], q[0] - p[0]) * 180 / Math.PI);
+    });
+  }
+  PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, drawPath };
+
+  // ---------------- data helpers
+  const tgt = () => D.targets[S.t];
+  const last = () => tgt().steps.length - 1;
+  const circuitOf = (t) => PV.circuits[t.circuit.type] || PV.circuits.pins;
+  const isCounter = (t, name) => t.counters.indexOf(name) >= 0;
+  const instrHz = (t) => (t.fosc_hz ? t.fosc_hz / 4 : null);
+  const bitName = (r, b) => r.bits[b] || `${r.name}<${b}>`;
+  const codeOf = (line) => { const i = line.indexOf('//'); return (i < 0 ? line : line.slice(0, i)).trim(); };
+  const fmtTime = (s) => (s < 1e-3 ? `${num(s * 1e6, 1)} µs` : s < 1 ? `${num(s * 1e3, 3)} ms` : `${num(s, 3)} 秒`);
+
+  function regsAt(t, step) {
+    const R = {};
+    if (step) t.regs.forEach((r, i) => { R[r.name] = step.v[i]; });
+    return R;
+  }
+
+  function changedBits(t, st, prev) {
+    const out = [];
+    if (!prev) return out;
+    t.regs.forEach((r, i) => {
+      if (isCounter(t, r.name)) return;
+      const diff = (prev.v[i] ^ st.v[i]) & r.mask;
+      for (let b = 7; b >= 0; b--) {
+        if ((diff >> b) & 1) out.push({ name: bitName(r, b), from: (prev.v[i] >> b) & 1, to: (st.v[i] >> b) & 1 });
+      }
+    });
+    return out;
+  }
+
+  // ---------------- one-time and per-target building
+  function buildTargets() {
+    const box = $('targetOpts');
+    box.replaceChildren();
+    D.targets.forEach((t, i) => {
+      const label = el('label');
+      const input = el('input');
+      input.type = 'radio'; input.name = 'target'; input.value = String(i); input.checked = i === S.t;
+      input.addEventListener('change', () => { S.t = i; stop(); buildTarget(); });
+      label.append(input, el('span', '', t.device));
+      box.append(label);
+    });
+  }
+
+  function buildOptions(c) {
+    document.querySelectorAll('#choices .seg.opt').forEach((n) => n.remove());
+    (c.options || []).forEach((o) => {
+      if (!o.choices.some((ch) => ch.value === S.opts[o.key])) S.opts[o.key] = o.default || o.choices[0].value;
+      const fs = el('fieldset', 'seg opt');
+      fs.append(el('legend', '', o.legend));
+      const box = el('div', 'opts');
+      o.choices.forEach((ch) => {
+        const label = el('label');
+        const input = el('input');
+        input.type = 'radio'; input.name = 'opt-' + o.key; input.value = ch.value; input.checked = S.opts[o.key] === ch.value;
+        input.addEventListener('change', () => { S.opts[o.key] = ch.value; update(); });
+        label.append(input, el('span', '', ch.label));
+        box.append(label);
+      });
+      fs.append(box);
+      $('choices').append(fs);
+    });
+  }
+
+  function buildSource(t) {
+    const ran = new Set(t.steps.map((s) => s.exec).filter((n) => n !== null));
+    const code = $('code');
+    code.replaceChildren();
+    t.source.forEach((line, i) => {
+      const no = i + 1;
+      const li = el('li');
+      li.dataset.line = String(no);
+      const tx = el('span', 'tx');
+      const cut = line.indexOf('//');
+      if (cut < 0) tx.textContent = line;
+      else tx.append(line.slice(0, cut), el('span', 'cm', line.slice(cut)));
+      li.append(el('span', 'ln', String(no)), tx);
+      if (ran.has(no)) {
+        li.classList.add('run');
+        li.tabIndex = 0;
+        const jump = () => { stop(); setStep(t.steps.findIndex((s) => s.exec === no)); };
+        li.addEventListener('click', jump);
+        li.addEventListener('keydown', (e) => { if (e.key === 'Enter') { jump(); e.preventDefault(); } });
+      }
+      code.append(li);
+    });
+  }
+
+  function buildRegs(t, marks) {
+    const body = $('regBody');
+    body.replaceChildren();
+    t.regs.forEach((r) => {
+      const tr = el('tr');
+      const th = el('th', '', r.name);
+      th.scope = 'row';
+      tr.append(th, el('td', 'val'));
+      for (let b = 7; b >= 0; b--) {
+        const td = el('td');
+        const bit = el('span', 'bit');
+        if (!((r.mask >> b) & 1)) { bit.classList.add('none'); bit.textContent = '-'; bit.title = `${r.name} のビット ${b} は無い`; }
+        else bit.title = `${bitName(r, b)}（ビット ${b}）`;
+        if (marks.some((m) => m.reg === r.name && m.bit === b)) bit.classList.add('mark');
+        td.append(bit);
+        tr.append(td);
+      }
+      body.append(tr);
+    });
+  }
+
+  function buildFoot(t, extra) {
+    const hz = instrHz(t);
+    const lines = [
+      `レジスタの値と実行の順番は、MPLAB X ${t.tools.mplabx || ''} のシミュレータ（mdb）で ${t.source_name} を実行して読んだ値（コンパイラ XC8 ${t.tools.xc8 || ''}、記録 ${t.traced}）。`,
+      `ピン番号とビットの有無は Microchip のデバイス定義ファイル（${t.pack.name} ${t.pack.version}）から。`,
+      hz ? `時間は命令サイクル数を 1 秒あたり ${hz / 1e6} M 命令（Fosc ${t.fosc_hz / 1e6} MHz の 4 分の 1）で割った値。` : '',
+      ...extra,
+      `作成: ${D.tool}`,
+    ].filter(Boolean);
+    $('foot').replaceChildren(...lines.map((s) => el('li', '', s)));
+  }
+
+  function ctxBase(t) {
+    return { t, cfg: t.circuit, box: $('cirBox'), opts: S.opts, U: PV.util };
+  }
+
+  function buildTarget() {
+    const t = tgt();
+    const c = circuitOf(t);
+    S.step = Math.min(S.step, last());
+    $('slider').max = String(last());
+    $('srcName').textContent = t.source_name;
+    $('subtitle').textContent = t.summary
+      ? `${t.device}: ${t.summary}`
+      : `${t.device} の ${t.source_name} を MPLAB X のシミュレータで実行した記録。`;
+    buildSource(t);
+    buildOptions(c);
+    $('cirTitle').textContent = c.title || '回路';
+    $('cirBox').replaceChildren();
+    const info = c.setup(ctxBase(t)) || {};
+    buildRegs(t, info.marks || []);
+    $('cirSub').textContent = info.sub || '';
+    $('cirAssume').textContent = info.assume || '';
+    const counterHint = t.counters.length ? `${t.counters.join('、')} は数え続けるカウンタなので、変化の印を付けない。` : '';
+    $('regHint').textContent = ['オレンジの枠は直前のステップから変わったビット。- はそのマイコンに無いビット。', info.regHint || '', counterHint]
+      .filter(Boolean).join(' ');
+    buildFoot(t, info.foot || []);
+    update();
+  }
+
+  // ---------------- per-step painting
+  function explain(t, st, prev) {
+    const regsChanged = [];
+    if (prev) t.regs.forEach((r, i) => { if (!isCounter(t, r.name) && prev.v[i] !== st.v[i]) regsChanged.push(`${r.name} ${hex(prev.v[i])} から ${hex(st.v[i])}`); });
+    if (st.exec === null) {
+      $('exNo').textContent = '';
+      $('exCode').textContent = 'まだ無い';
+      $('exNote').textContent = 'リセット直後。main の最初の行はまだ実行していない。';
+    } else {
+      $('exNo').textContent = `${st.exec} 行目`;
+      $('exCode').textContent = codeOf(t.source[st.exec - 1] || '');
+      const repeat = prev && prev.exec === st.exec && regsChanged.length === 0;
+      const bits = changedBits(t, st, prev);
+      const auto = bits.length ? '変わったビット: ' + bits.map((b) => `${b.name} が ${b.from} から ${b.to}`).join('、') : 'レジスタの変化は無い。';
+      $('exNote').textContent = repeat ? '同じ行をもう一度実行した（ループの中）。レジスタは変わらない。' : (t.notes[String(st.exec)] || auto);
+    }
+    $('exDelta').textContent = prev ? (regsChanged.length ? `変わったレジスタ: ${regsChanged.join('、')}` : '変わったレジスタ: なし') : '';
+    $('exDelta').className = regsChanged.length ? 'delta' : '';
+    const hz = instrHz(t);
+    $('exMeta').textContent = `次に実行する行: ${st.next} 行目（アドレス ${st.addr}）　リセットからの命令サイクル数: ${st.cycles}`
+      + (hz ? `（${fmtTime(st.cycles / hz)}）` : '');
+  }
+
+  function paintSource(st) {
+    const code = $('code');
+    code.querySelectorAll('li').forEach((li) => li.classList.toggle('cur', Number(li.dataset.line) === st.exec));
+    const cur = code.querySelector('li.cur');
+    if (cur && code.scrollHeight > code.clientHeight) {   // keep the executed line inside the listing's own scroll box
+      const box = code.getBoundingClientRect();
+      const row = cur.getBoundingClientRect();
+      const margin = row.height * 2;
+      if (row.top < box.top + margin) code.scrollTop -= box.top + margin - row.top;
+      else if (row.bottom > box.bottom - margin) code.scrollTop += row.bottom - (box.bottom - margin);
+    }
+  }
+
+  function paintRegs(t, st, prev) {
+    [...$('regBody').rows].forEach((tr, i) => {
+      const r = t.regs[i];
+      const v = st.v[i];
+      const pv = prev ? prev.v[i] : v;
+      const counter = isCounter(t, r.name);
+      tr.classList.toggle('chg', pv !== v && !counter);
+      tr.cells[1].textContent = hex(v);
+      tr.cells[1].title = pv !== v ? `直前の値は ${hex(pv)}` : '';
+      for (let b = 7; b >= 0; b--) {
+        const bit = tr.cells[2 + (7 - b)].firstChild;
+        if (!((r.mask >> b) & 1)) continue;
+        const one = (v >> b) & 1;
+        bit.textContent = String(one);
+        bit.classList.toggle('one', one === 1);
+        bit.classList.toggle('flip', ((pv ^ v) >> b & 1) === 1 && !counter);
+      }
+    });
+  }
+
+  function paintStatus(list) {
+    $('cirStatus').replaceChildren(...list.map((s) => {
+      const d = el('div', s.tone || '');
+      d.append(el('dt', '', s.label), el('dd', '', s.value));
+      return d;
+    }));
+  }
+
+  function waveCaption(w, hz) {
+    const range = (a) => (Math.min(...a) === Math.max(...a) ? `${a[0]}` : `${Math.min(...a)}〜${Math.max(...a)}`);
+    const avg = (a) => a.reduce((s, x) => s + x, 0) / a.length;
+    const parts = [];
+    if (w.periods.length) parts.push(`周期 ${range(w.periods)} サイクル` + (hz ? `（約 ${num(hz / avg(w.periods) / 1000)} kHz）` : ''));
+    if (w.highs.length) parts.push(`H の長さ ${range(w.highs)} サイクル`);
+    if (w.periods.length && w.highs.length) parts.push(`デューティ 約 ${Math.round((avg(w.highs) / avg(w.periods)) * 100)} %`);
+    else parts.push(`この間ずっと ${w.edges[0][1] ? 'H' : 'L'}` );
+    return parts.join('、') + '。1 命令は 1〜2 サイクルなので、変わり目の位置は 1〜2 サイクルずれうる。';
+  }
+
+  function paintWaves(t, st) {
+    const box = $('waveBox');
+    const list = (t.waves || []).filter((w) => w.at === st.next);
+    box.hidden = list.length === 0;
+    box.replaceChildren();
+    const hz = instrHz(t);
+    list.forEach((w) => {
+      const W = 600, H = 40, hi = 5, lo = H - 5;
+      const span = Math.max(1, w.end - w.start);
+      const x = (c) => (((c - w.start) / span) * W).toFixed(1);
+      const pts = [];
+      w.edges.forEach(([c, lv], i) => {
+        if (i > 0) pts.push(`${x(c)},${w.edges[i - 1][1] ? hi : lo}`);
+        pts.push(`${x(c)},${lv ? hi : lo}`);
+      });
+      pts.push(`${W},${w.edges[w.edges.length - 1][1] ? hi : lo}`);
+      const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `${w.pin} の波形` });
+      svg.append(svgEl('polyline', { points: pts.join(' ') }));
+      const card = el('div', 'wave');
+      card.append(el('p', 'head', `${w.pin} の実際の波形: シミュレータで ${w.at} 行目に止めてから ${w.samples} 命令、1 命令ずつピンを読んだ（${w.end - w.start} サイクル分）`),
+        svg, el('p', 'cap', waveCaption(w, hz)));
+      box.append(card);
+    });
+  }
+
+  function update() {
+    const t = tgt();
+    const st = t.steps[S.step];
+    const prev = S.step > 0 ? t.steps[S.step - 1] : null;
+    $('slider').value = String(S.step);
+    $('stepLabel').textContent = `ステップ ${S.step} / ${last()}`;
+    $('bFirst').disabled = $('bPrev').disabled = S.step === 0;
+    $('bNext').disabled = $('bLast').disabled = S.step === last();
+    explain(t, st, prev);
+    paintSource(st);
+    paintRegs(t, st, prev);
+    const res = circuitOf(t).update({ ...ctxBase(t), st, prev, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null, fmtTime, instrHz: instrHz(t) }) || {};
+    paintStatus(res.status || []);
+    $('cirText').textContent = res.text || '';
+    S.probe = res.probe || null;
+    paintWaves(t, st);
+    writeHash(t);
+  }
+
+  // ---------------- state, hash and controls
+  function writeHash(t) {
+    const p = new URLSearchParams({ target: t.id, step: String(S.step) });
+    (circuitOf(t).options || []).forEach((o) => p.set(o.key, S.opts[o.key]));
+    try { history.replaceState(null, '', '#' + p.toString()); } catch (e) { /* file:// may refuse */ }
+  }
+  function readHash() {
+    const p = new URLSearchParams(location.hash.slice(1));
+    const i = D.targets.findIndex((t) => t.id === p.get('target'));
+    if (i >= 0) S.t = i;
+    const n = Number.parseInt(p.get('step'), 10);
+    if (Number.isFinite(n)) S.step = Math.max(0, n);
+    for (const [k, v] of p.entries()) if (k !== 'target' && k !== 'step') S.opts[k] = v;
+  }
+  function setStep(n) { S.step = Math.max(0, Math.min(last(), n)); update(); }
+  function stop() {
+    if (S.timer) clearInterval(S.timer);
+    S.timer = null;
+    $('bPlay').textContent = '再生';
+    $('bPlay').setAttribute('aria-pressed', 'false');
+  }
+  function play() {
+    if (S.step >= last()) setStep(0);
+    S.timer = setInterval(() => { if (S.step >= last()) stop(); else setStep(S.step + 1); }, PLAY_MS);
+    $('bPlay').textContent = '停止';
+    $('bPlay').setAttribute('aria-pressed', 'true');
+  }
+
+  $('bFirst').addEventListener('click', () => { stop(); setStep(0); });
+  $('bPrev').addEventListener('click', () => { stop(); setStep(S.step - 1); });
+  $('bNext').addEventListener('click', () => { stop(); setStep(S.step + 1); });
+  $('bLast').addEventListener('click', () => { stop(); setStep(last()); });
+  $('bPlay').addEventListener('click', () => { if (S.timer) stop(); else play(); });
+  $('slider').addEventListener('input', (e) => { stop(); setStep(Number(e.target.value)); });
+  document.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;   // the slider and the radios keep their own keys
+    if (e.key === 'ArrowRight') { stop(); setStep(S.step + 1); }
+    else if (e.key === 'ArrowLeft') { stop(); setStep(S.step - 1); }
+    else if (e.key === 'Home') { stop(); setStep(0); }
+    else if (e.key === 'End') { stop(); setStep(last()); }
+    else if (e.key === ' ' && tag !== 'BUTTON' && tag !== 'LI') { if (S.timer) stop(); else play(); }
+    else return;
+    e.preventDefault();
+  });
+
+  // read-only view of the state, for checks run from a browser driver
+  PV.state = () => {
+    const t = tgt();
+    const st = t.steps[S.step];
+    return { target: t.id, step: S.step, last: last(), exec: st.exec, next: st.next,
+      opts: { ...S.opts }, playing: Boolean(S.timer), probe: S.probe };
+  };
+
+  readHash();
+  document.title = D.title;
+  $('title').textContent = D.title;
+  buildTargets();
+  buildTarget();
+})();
+
+</script>
+</body>
+</html>

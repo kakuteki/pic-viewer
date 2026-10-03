@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pic-viewer"
+dynamic = ["version"]
+description = "Step a PIC program in the MPLAB X simulator and view source, registers and circuit current in one HTML page"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/kakuteki/pic-viewer"
+
+[project.scripts]
+picviewer = "picviewer.cli:main"
+
+[tool.setuptools]
+packages = ["picviewer"]
+
+[tool.setuptools.package-data]
+picviewer = ["web/*.html", "web/*.js", "web/circuits/*.js"]
+
+[tool.setuptools.dynamic]
+version = { attr = "picviewer.__version__" }

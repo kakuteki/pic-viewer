@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PIC viewer</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f1f2f6; --panel: #ffffff; --inset: #eceef3; --inset-hover: #dfe3ea;
+  --fg: #1b1e26; --dim: #596072; --wire: #7b8294;
+  --accent: #e07a10; --accent-ink: #a65200; --accent-soft: #fdebd3;
+  --recirc: #2f86c4; --recirc-ink: #1d5f8f; --recirc-soft: #d9ebf7;
+  --led: #f5b800; --led-off: #c9cdd6;
+  --bit1: #3d62b6; --bit1-ink: #ffffff; --bit0: #e4e7ee; --bit0-ink: #4d5464;
+  --hl: #ffefc2; --focus: #1f6feb;
+  --mono: Consolas, "BIZ UDGothic", "MS Gothic", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161b; --panel: #1e222a; --inset: #282d37; --inset-hover: #343a47;
+    --fg: #e4e7ee; --dim: #9ba2b3; --wire: #6f778a;
+    --accent: #ff9a2e; --accent-ink: #ffb061; --accent-soft: #43311b;
+    --recirc: #4ea3e0; --recirc-ink: #8cc8f2; --recirc-soft: #1c3449;
+    --led: #ffd246; --led-off: #4a4f5c;
+    --bit1: #5b83dd; --bit1-ink: #0e1116; --bit0: #2a2f3a; --bit0-ink: #aab1c2;
+    --hl: #40371f; --focus: #6ea8ff;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: "Yu Gothic UI", "Meiryo UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.5;
+}
+.wrap { max-width: 1840px; margin: 0 auto; padding: 16px 20px 28px; }
+.top { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-end; justify-content: space-between; }
+h1 { font-size: 20px; line-height: 1.3; margin: 0; }
+.sub { margin: 2px 0 0; color: var(--dim); font-size: 13px; }
+.choices { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.seg { border: 0; padding: 0; margin: 0; min-width: 0; }
+.seg legend { font-size: 12px; color: var(--dim); padding: 0; margin-bottom: 4px; }
+.seg .opts { display: inline-flex; flex-wrap: wrap; background: var(--inset); border-radius: 9px; padding: 3px; gap: 3px; }
+.seg label { position: relative; display: block; }
+.seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.seg span { display: block; padding: 5px 12px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.seg input:checked + span { background: var(--panel); font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, .28); }
+.seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.transport {
+  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 12px 0 10px;
+}
+.transport .buttons { display: flex; gap: 6px; }
+.transport button {
+  font: inherit; min-width: 60px; padding: 6px 12px; border: 0; border-radius: 8px;
+  background: var(--inset); color: var(--fg); cursor: pointer;
+}
+.transport button:hover:not(:disabled) { background: var(--inset-hover); }
+.transport button:disabled { opacity: .45; cursor: default; }
+.transport button:focus-visible, .code li:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.transport #bPlay { background: var(--bit1); color: var(--bit1-ink); font-weight: 700; min-width: 72px; }
+.transport input[type=range] { flex: 1 1 240px; min-width: 160px; accent-color: var(--accent); }
+.transport output { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.transport .keys { color: var(--dim); font-size: 12px; white-space: nowrap; }
+@media (max-width: 1199px) { .transport .keys { display: none; } }
+
+.explain {
+  background: var(--panel); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px;
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 4px 28px;
+}
+.tag { display: block; font-size: 12px; color: var(--dim); }
+.explain code { font-family: var(--mono); font-size: 16px; font-weight: 700; white-space: pre-wrap; overflow-wrap: anywhere; }
+.explain .lineno { font-size: 13px; color: var(--accent-ink); font-weight: 700; margin-right: 10px; white-space: nowrap; }
+.explain p { margin: 0; font-size: 15px; }
+.explain .meta { margin-top: 4px; font-size: 12px; color: var(--dim); }
+.explain .delta { font-family: var(--mono); color: var(--accent-ink); font-weight: 700; }
+
+.grid { display: grid; gap: 14px; align-items: start; grid-template-columns: minmax(0, 1fr); grid-template-areas: "circuit" "regs" "source"; }
+@media (min-width: 1000px) {
+  .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-areas: "source circuit" "source regs"; }
+}
+@media (min-width: 1500px) {
+  .grid { grid-template-columns: minmax(0, 30fr) minmax(0, 45fr) minmax(380px, 25fr); grid-template-areas: "source circuit regs"; }
+}
+.panel { background: var(--panel); border-radius: 12px; padding: 12px 14px 14px; min-width: 0; }
+.panel h2 { font-size: 13px; color: var(--dim); margin: 0 0 8px; font-weight: 700; }
+.panel h2 small { font-weight: 400; font-size: 12px; margin-left: 8px; }
+#pSource { grid-area: source; } #pCircuit { grid-area: circuit; } #pRegs { grid-area: regs; }
+
+.code {
+  margin: 0; padding: 0; list-style: none; overflow-x: auto;
+  display: grid; grid-template-columns: minmax(max-content, 1fr);
+  font-family: var(--mono); font-size: clamp(12px, 0.78vw + 0.5px, 13.5px); line-height: 1.5; tab-size: 4;
+}
+@media (min-width: 1000px) {
+  .code { max-height: max(300px, calc(100vh - 330px)); overflow-y: auto; }
+  #pSource { position: sticky; top: 62px; }
+}
+.code li { display: flex; white-space: pre; border-radius: 4px; }
+.code .ln { flex: 0 0 2.6em; text-align: right; padding-right: 12px; color: var(--dim); user-select: none; }
+.code .tx { flex: 1 0 auto; padding-right: 10px; }
+.code .cm { color: var(--dim); }
+.code li.run { cursor: pointer; }
+.code li.run .ln { color: var(--fg); font-weight: 700; }
+.code li.run:hover { background: var(--inset); }
+.code li.cur, .code li.cur:hover { background: var(--hl); }
+.code li.cur .ln { color: var(--accent-ink); }
+.hint { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
+
+.regs { border-collapse: separate; border-spacing: 0 3px; font-size: 13px; }
+.regs th, .regs td { padding: 2px 3px; white-space: nowrap; text-align: left; }
+.regs thead th { font-size: 11px; color: var(--dim); font-weight: 400; text-align: center; }
+.regs thead th:first-child, .regs thead th:nth-child(2) { text-align: left; }
+.regs tbody th { font-family: var(--mono); font-weight: 700; padding-left: 8px; border-radius: 6px 0 0 6px; }
+.regs .val { font-family: var(--mono); padding-right: 8px; }
+.regs td:last-child { padding-right: 6px; border-radius: 0 6px 6px 0; }
+.regs tr.chg th, .regs tr.chg td { background: var(--accent-soft); }
+.bit {
+  display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center;
+  border-radius: 5px; font-family: var(--mono); font-size: 13px; background: var(--bit0); color: var(--bit0-ink);
+}
+.bit.one { background: var(--bit1); color: var(--bit1-ink); font-weight: 700; }
+.bit.none { background: transparent; color: var(--dim); opacity: .7; }
+.bit.mark { box-shadow: 0 0 0 2px var(--fg); }
+.bit.flip { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bit.mark.flip { outline-offset: 3px; }
+
+/* circuit drawings */
+.cirbox { overflow-x: auto; }
+#cir { display: block; width: 100%; min-width: 480px; height: auto; max-height: 600px; }
+#cir text { font-family: inherit; fill: var(--fg); font-size: 17px; }
+#cir text.big { font-size: 19px; }
+#cir text.small { font-size: 14.5px; }
+#cir text.dim, #cir tspan.dim { fill: var(--dim); }
+#cir text.em { fill: var(--accent-ink); font-weight: 700; }
+#cir .wire path { fill: none; stroke: var(--wire); stroke-width: 2; }
+#cir .wire path.ctl { stroke-dasharray: 4 3; stroke-width: 1.5; }
+#cir .body { fill: var(--inset); stroke: var(--fg); stroke-width: 1.5; }
+#cir .box { fill: var(--panel); stroke: var(--wire); stroke-width: 1; }
+#cir .mod { fill: none; stroke: var(--wire); stroke-width: 1.5; stroke-dasharray: 6 4; }
+#cir .comp { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
+#cir .dot { fill: var(--fg); }
+#cir .plate { stroke: var(--fg); stroke-width: 2.5; }
+#cir .plate.thick { stroke-width: 6; }
+#cir .gate { stroke: var(--wire); stroke-width: 2; }
+#cir .sw .lever { stroke: var(--dim); stroke-width: 3; stroke-linecap: round; transform: rotate(32deg); transition: transform .18s ease; }
+#cir .sw.on .lever { transform: rotate(0deg); stroke: var(--fg); }
+#cir .cur { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+#cir .cur.re { stroke: var(--recirc); }
+#cir .cur.gen { stroke: var(--recirc); stroke-dasharray: 10 8; stroke-width: 4; opacity: .8; }
+#cir .flow { fill: none; stroke: #ffffff; stroke-width: 4.5; stroke-linecap: round; stroke-dasharray: 0.1 52; animation: flow 1.3s linear infinite; }
+#cir .flow.gen { stroke-width: 3; }
+#cir use.ah { fill: var(--fg); }
+@keyframes flow { to { stroke-dashoffset: -52.1; } }
+@media (prefers-reduced-motion: reduce) { #cir .flow { animation: none; } #cir .sw .lever { transition: none; } }
+#cir .led-body { fill: var(--led-off); stroke: var(--fg); stroke-width: 1.5; stroke-linejoin: round; }
+#cir .led-bar { stroke: var(--fg); stroke-width: 3; }
+#cir .halo { fill: var(--led); opacity: 0; }
+#cir[data-lit="1"] .led-body { fill: var(--led); }
+#cir[data-lit="1"] .halo { opacity: .3; }
+#cir[data-wire="source"] .w-sink, #cir[data-wire="sink"] .w-source { display: none; }
+#cir .motor { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
+#cir .motor.on { fill: var(--accent-soft); }
+#cir .spin { fill: none; stroke: var(--accent-ink); stroke-width: 2.5; stroke-linecap: round; }
+
+/* pins view */
+.pins { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+.pin { background: var(--inset); border-radius: 8px; padding: 6px 9px; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
+.pin b { font-family: var(--mono); }
+.pin .no { color: var(--dim); font-size: 12px; text-align: right; }
+.pin .dir { font-size: 12px; color: var(--dim); }
+.pin .lv { font-family: var(--mono); font-weight: 700; text-align: right; }
+.pin.out .dir { color: var(--fg); }
+.pin.hi { background: var(--accent-soft); }
+.pin.hi .lv { color: var(--accent-ink); }
+.pin.chg { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; margin: 8px 0 0; }
+.status:empty { display: none; }
+.status div { background: var(--inset); border-radius: 8px; padding: 6px 9px; min-width: 0; }
+.status dt { font-size: 11px; color: var(--dim); }
+.status dd { margin: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+.status .on { background: var(--accent-soft); }
+.status .on dd { color: var(--accent-ink); }
+.status .re { background: var(--recirc-soft); }
+.status .re dd { color: var(--recirc-ink); }
+.flowtext { margin: 10px 0 0; font-size: 14px; min-height: 3em; }
+.flowtext:empty { min-height: 0; }
+.wave { margin: 10px 0 0; background: var(--inset); border-radius: 8px; padding: 8px 10px 6px; }
+.wave + .wave { margin-top: 6px; }
+.wave .head { margin: 0 0 4px; font-size: 12px; color: var(--dim); }
+.wave svg { display: block; width: 100%; height: 44px; }
+.wave polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.wave .cap { margin: 4px 0 0; font-size: 12px; }
+.assume { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
+.foot { margin-top: 16px; color: var(--dim); font-size: 12px; }
+.foot ul { margin: 0; padding-left: 18px; }
+.foot li { margin: 2px 0; }
+@media (max-width: 560px) { .explain { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1 id="title">PIC viewer</h1>
+      <p class="sub" id="subtitle"></p>
+    </div>
+    <div class="choices" id="choices">
+      <fieldset class="seg" id="targetSeg">
+        <legend>マイコン</legend>
+        <div class="opts" id="targetOpts"></div>
+      </fieldset>
+    </div>
+  </header>
+
+  <section class="transport" aria-label="ステップ操作">
+    <div class="buttons">
+      <button type="button" id="bFirst">最初</button>
+      <button type="button" id="bPrev">前へ</button>
+      <button type="button" id="bPlay" aria-pressed="false">再生</button>
+      <button type="button" id="bNext">次へ</button>
+      <button type="button" id="bLast">最後</button>
+    </div>
+    <input type="range" id="slider" min="0" max="1" step="1" value="0" aria-label="ステップ">
+    <output id="stepLabel" for="slider"></output>
+    <span class="keys">左右キーで前後、スペースキーで再生と停止</span>
+  </section>
+
+  <section class="explain" aria-live="polite">
+    <div>
+      <span class="tag">このステップで実行した行</span>
+      <span class="lineno" id="exNo"></span><code id="exCode"></code>
+    </div>
+    <div>
+      <span class="tag">起きたこと</span>
+      <p id="exNote"></p>
+      <div class="meta"><span id="exDelta"></span></div>
+      <div class="meta" id="exMeta"></div>
+    </div>
+  </section>
+
+  <main class="grid">
+    <section class="panel" id="pSource" aria-label="ソースコード">
+      <h2>ソースコード<small id="srcName"></small></h2>
+      <ol class="code" id="code"></ol>
+      <p class="hint">行番号が濃い行は、記録の中で止まった行。クリックすると、その行を実行した直後のステップへ移る。</p>
+    </section>
+
+    <section class="panel" id="pCircuit" aria-label="回路">
+      <h2><span id="cirTitle">回路</span><small id="cirSub"></small></h2>
+      <div class="cirbox" id="cirBox"></div>
+      <dl class="status" id="cirStatus"></dl>
+      <p class="flowtext" id="cirText"></p>
+      <div id="waveBox" hidden></div>
+      <p class="assume" id="cirAssume"></p>
+    </section>
+
+    <section class="panel" id="pRegs" aria-label="レジスタ">
+      <h2>レジスタ<small>シミュレータで読んだ値</small></h2>
+      <table class="regs">
+        <thead>
+          <tr><th scope="col">名前</th><th scope="col">値</th>
+            <th scope="col">7</th><th scope="col">6</th><th scope="col">5</th><th scope="col">4</th>
+            <th scope="col">3</th><th scope="col">2</th><th scope="col">1</th><th scope="col">0</th></tr>
+        </thead>
+        <tbody id="regBody"></tbody>
+      </table>
+      <p class="hint" id="regHint"></p>
+    </section>
+  </main>
+
+  <footer class="foot"><ul id="foot"></ul></footer>
+</div>
+
+<script type="application/json" id="data">/*__DATA__*/</script>
+<script>
+window.PicViewer = { circuits: {}, util: {} };
+/*__SCRIPTS__*/
+</script>
+</body>
+</html>

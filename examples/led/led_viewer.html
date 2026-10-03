@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED を点ける（led.c）</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f1f2f6; --panel: #ffffff; --inset: #eceef3; --inset-hover: #dfe3ea;
+  --fg: #1b1e26; --dim: #596072; --wire: #7b8294;
+  --accent: #e07a10; --accent-ink: #a65200; --accent-soft: #fdebd3;
+  --recirc: #2f86c4; --recirc-ink: #1d5f8f; --recirc-soft: #d9ebf7;
+  --led: #f5b800; --led-off: #c9cdd6;
+  --bit1: #3d62b6; --bit1-ink: #ffffff; --bit0: #e4e7ee; --bit0-ink: #4d5464;
+  --hl: #ffefc2; --focus: #1f6feb;
+  --mono: Consolas, "BIZ UDGothic", "MS Gothic", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161b; --panel: #1e222a; --inset: #282d37; --inset-hover: #343a47;
+    --fg: #e4e7ee; --dim: #9ba2b3; --wire: #6f778a;
+    --accent: #ff9a2e; --accent-ink: #ffb061; --accent-soft: #43311b;
+    --recirc: #4ea3e0; --recirc-ink: #8cc8f2; --recirc-soft: #1c3449;
+    --led: #ffd246; --led-off: #4a4f5c;
+    --bit1: #5b83dd; --bit1-ink: #0e1116; --bit0: #2a2f3a; --bit0-ink: #aab1c2;
+    --hl: #40371f; --focus: #6ea8ff;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: "Yu Gothic UI", "Meiryo UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.5;
+}
+.wrap { max-width: 1840px; margin: 0 auto; padding: 16px 20px 28px; }
+.top { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-end; justify-content: space-between; }
+h1 { font-size: 20px; line-height: 1.3; margin: 0; }
+.sub { margin: 2px 0 0; color: var(--dim); font-size: 13px; }
+.choices { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.seg { border: 0; padding: 0; margin: 0; min-width: 0; }
+.seg legend { font-size: 12px; color: var(--dim); padding: 0; margin-bottom: 4px; }
+.seg .opts { display: inline-flex; flex-wrap: wrap; background: var(--inset); border-radius: 9px; padding: 3px; gap: 3px; }
+.seg label { position: relative; display: block; }
+.seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.seg span { display: block; padding: 5px 12px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.seg input:checked + span { background: var(--panel); font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, .28); }
+.seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.transport {
+  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 12px 0 10px;
+}
+.transport .buttons { display: flex; gap: 6px; }
+.transport button {
+  font: inherit; min-width: 60px; padding: 6px 12px; border: 0; border-radius: 8px;
+  background: var(--inset); color: var(--fg); cursor: pointer;
+}
+.transport button:hover:not(:disabled) { background: var(--inset-hover); }
+.transport button:disabled { opacity: .45; cursor: default; }
+.transport button:focus-visible, .code li:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.transport #bPlay { background: var(--bit1); color: var(--bit1-ink); font-weight: 700; min-width: 72px; }
+.transport input[type=range] { flex: 1 1 240px; min-width: 160px; accent-color: var(--accent); }
+.transport output { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.transport .keys { color: var(--dim); font-size: 12px; white-space: nowrap; }
+@media (max-width: 1199px) { .transport .keys { display: none; } }
+
+.explain {
+  background: var(--panel); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px;
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 4px 28px;
+}
+.tag { display: block; font-size: 12px; color: var(--dim); }
+.explain code { font-family: var(--mono); font-size: 16px; font-weight: 700; white-space: pre-wrap; overflow-wrap: anywhere; }
+.explain .lineno { font-size: 13px; color: var(--accent-ink); font-weight: 700; margin-right: 10px; white-space: nowrap; }
+.explain p { margin: 0; font-size: 15px; }
+.explain .meta { margin-top: 4px; font-size: 12px; color: var(--dim); }
+.explain .delta { font-family: var(--mono); color: var(--accent-ink); font-weight: 700; }
+
+.grid { display: grid; gap: 14px; align-items: start; grid-template-columns: minmax(0, 1fr); grid-template-areas: "circuit" "regs" "source"; }
+@media (min-width: 1000px) {
+  .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-areas: "source circuit" "source regs"; }
+}
+@media (min-width: 1500px) {
+  .grid { grid-template-columns: minmax(0, 30fr) minmax(0, 45fr) minmax(380px, 25fr); grid-template-areas: "source circuit regs"; }
+}
+.panel { background: var(--panel); border-radius: 12px; padding: 12px 14px 14px; min-width: 0; }
+.panel h2 { font-size: 13px; color: var(--dim); margin: 0 0 8px; font-weight: 700; }
+.panel h2 small { font-weight: 400; font-size: 12px; margin-left: 8px; }
+#pSource { grid-area: source; } #pCircuit { grid-area: circuit; } #pRegs { grid-area: regs; }
+
+.code {
+  margin: 0; padding: 0; list-style: none; overflow-x: auto;
+  display: grid; grid-template-columns: minmax(max-content, 1fr);
+  font-family: var(--mono); font-size: clamp(12px, 0.78vw + 0.5px, 13.5px); line-height: 1.5; tab-size: 4;
+}
+@media (min-width: 1000px) {
+  .code { max-height: max(300px, calc(100vh - 330px)); overflow-y: auto; }
+  #pSource { position: sticky; top: 62px; }
+}
+.code li { display: flex; white-space: pre; border-radius: 4px; }
+.code .ln { flex: 0 0 2.6em; text-align: right; padding-right: 12px; color: var(--dim); user-select: none; }
+.code .tx { flex: 1 0 auto; padding-right: 10px; }
+.code .cm { color: var(--dim); }
+.code li.run { cursor: pointer; }
+.code li.run .ln { color: var(--fg); font-weight: 700; }
+.code li.run:hover { background: var(--inset); }
+.code li.cur, .code li.cur:hover { background: var(--hl); }
+.code li.cur .ln { color: var(--accent-ink); }
+.hint { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
+
+.regs { border-collapse: separate; border-spacing: 0 3px; font-size: 13px; }
+.regs th, .regs td { padding: 2px 3px; white-space: nowrap; text-align: left; }
+.regs thead th { font-size: 11px; color: var(--dim); font-weight: 400; text-align: center; }
+.regs thead th:first-child, .regs thead th:nth-child(2) { text-align: left; }
+.regs tbody th { font-family: var(--mono); font-weight: 700; padding-left: 8px; border-radius: 6px 0 0 6px; }
+.regs .val { font-family: var(--mono); padding-right: 8px; }
+.regs td:last-child { padding-right: 6px; border-radius: 0 6px 6px 0; }
+.regs tr.chg th, .regs tr.chg td { background: var(--accent-soft); }
+.bit {
+  display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center;
+  border-radius: 5px; font-family: var(--mono); font-size: 13px; background: var(--bit0); color: var(--bit0-ink);
+}
+.bit.one { background: var(--bit1); color: var(--bit1-ink); font-weight: 700; }
+.bit.none { background: transparent; color: var(--dim); opacity: .7; }
+.bit.mark { box-shadow: 0 0 0 2px var(--fg); }
+.bit.flip { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bit.mark.flip { outline-offset: 3px; }
+
+/* circuit drawings */
+.cirbox { overflow-x: auto; }
+#cir { display: block; width: 100%; min-width: 480px; height: auto; max-height: 600px; }
+#cir text { font-family: inherit; fill: var(--fg); font-size: 17px; }
+#cir text.big { font-size: 19px; }
+#cir text.small { font-size: 14.5px; }
+#cir text.dim, #cir tspan.dim { fill: var(--dim); }
+#cir text.em { fill: var(--accent-ink); font-weight: 700; }
+#cir .wire path { fill: none; stroke: var(--wire); stroke-width: 2; }
+#cir .wire path.ctl { stroke-dasharray: 4 3; stroke-width: 1.5; }
+#cir .body { fill: var(--inset); stroke: var(--fg); stroke-width: 1.5; }
+#cir .box { fill: var(--panel); stroke: var(--wire); stroke-width: 1; }
+#cir .mod { fill: none; stroke: var(--wire); stroke-width: 1.5; stroke-dasharray: 6 4; }
+#cir .comp { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
+#cir .dot { fill: var(--fg); }
+#cir .plate { stroke: var(--fg); stroke-width: 2.5; }
+#cir .plate.thick { stroke-width: 6; }
+#cir .gate { stroke: var(--wire); stroke-width: 2; }
+#cir .sw .lever { stroke: var(--dim); stroke-width: 3; stroke-linecap: round; transform: rotate(32deg); transition: transform .18s ease; }
+#cir .sw.on .lever { transform: rotate(0deg); stroke: var(--fg); }
+#cir .cur { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+#cir .cur.re { stroke: var(--recirc); }
+#cir .cur.gen { stroke: var(--recirc); stroke-dasharray: 10 8; stroke-width: 4; opacity: .8; }
+#cir .flow { fill: none; stroke: #ffffff; stroke-width: 4.5; stroke-linecap: round; stroke-dasharray: 0.1 52; animation: flow 1.3s linear infinite; }
+#cir .flow.gen { stroke-width: 3; }
+#cir use.ah { fill: var(--fg); }
+@keyframes flow { to { stroke-dashoffset: -52.1; } }
+@media (prefers-reduced-motion: reduce) { #cir .flow { animation: none; } #cir .sw .lever { transition: none; } }
+#cir .led-body { fill: var(--led-off); stroke: var(--fg); stroke-width: 1.5; stroke-linejoin: round; }
+#cir .led-bar { stroke: var(--fg); stroke-width: 3; }
+#cir .halo { fill: var(--led); opacity: 0; }
+#cir[data-lit="1"] .led-body { fill: var(--led); }
+#cir[data-lit="1"] .halo { opacity: .3; }
+#cir[data-wire="source"] .w-sink, #cir[data-wire="sink"] .w-source { display: none; }
+#cir .motor { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
+#cir .motor.on { fill: var(--accent-soft); }
+#cir .spin { fill: none; stroke: var(--accent-ink); stroke-width: 2.5; stroke-linecap: round; }
+
+/* pins view */
+.pins { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+.pin { background: var(--inset); border-radius: 8px; padding: 6px 9px; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
+.pin b { font-family: var(--mono); }
+.pin .no { color: var(--dim); font-size: 12px; text-align: right; }
+.pin .dir { font-size: 12px; color: var(--dim); }
+.pin .lv { font-family: var(--mono); font-weight: 700; text-align: right; }
+.pin.out .dir { color: var(--fg); }
+.pin.hi { background: var(--accent-soft); }
+.pin.hi .lv { color: var(--accent-ink); }
+.pin.chg { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; margin: 8px 0 0; }
+.status:empty { display: none; }
+.status div { background: var(--inset); border-radius: 8px; padding: 6px 9px; min-width: 0; }
+.status dt { font-size: 11px; color: var(--dim); }
+.status dd { margin: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+.status .on { background: var(--accent-soft); }
+.status .on dd { color: var(--accent-ink); }
+.status .re { background: var(--recirc-soft); }
+.status .re dd { color: var(--recirc-ink); }
+.flowtext { margin: 10px 0 0; font-size: 14px; min-height: 3em; }
+.flowtext:empty { min-height: 0; }
+.wave { margin: 10px 0 0; background: var(--inset); border-radius: 8px; padding: 8px 10px 6px; }
+.wave + .wave { margin-top: 6px; }
+.wave .head { margin: 0 0 4px; font-size: 12px; color: var(--dim); }
+.wave svg { display: block; width: 100%; height: 44px; }
+.wave polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.wave .cap { margin: 4px 0 0; font-size: 12px; }
+.assume { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
+.foot { margin-top: 16px; color: var(--dim); font-size: 12px; }
+.foot ul { margin: 0; padding-left: 18px; }
+.foot li { margin: 2px 0; }
+@media (max-width: 560px) { .explain { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1 id="title">PIC viewer</h1>
+      <p class="sub" id="subtitle"></p>
+    </div>
+    <div class="choices" id="choices">
+      <fieldset class="seg" id="targetSeg">
+        <legend>マイコン</legend>
+        <div class="opts" id="targetOpts"></div>
+      </fieldset>
+    </div>
+  </header>
+
+  <section class="transport" aria-label="ステップ操作">
+    <div class="buttons">
+      <button type="button" id="bFirst">最初</button>
+      <button type="button" id="bPrev">前へ</button>
+      <button type="button" id="bPlay" aria-pressed="false">再生</button>
+      <button type="button" id="bNext">次へ</button>
+      <button type="button" id="bLast">最後</button>
+    </div>
+    <input type="range" id="slider" min="0" max="1" step="1" value="0" aria-label="ステップ">
+    <output id="stepLabel" for="slider"></output>
+    <span class="keys">左右キーで前後、スペースキーで再生と停止</span>
+  </section>
+
+  <section class="explain" aria-live="polite">
+    <div>
+      <span class="tag">このステップで実行した行</span>
+      <span class="lineno" id="exNo"></span><code id="exCode"></code>
+    </div>
+    <div>
+      <span class="tag">起きたこと</span>
+      <p id="exNote"></p>
+      <div class="meta"><span id="exDelta"></span></div>
+      <div class="meta" id="exMeta"></div>
+    </div>
+  </section>
+
+  <main class="grid">
+    <section class="panel" id="pSource" aria-label="ソースコード">
+      <h2>ソースコード<small id="srcName"></small></h2>
+      <ol class="code" id="code"></ol>
+      <p class="hint">行番号が濃い行は、記録の中で止まった行。クリックすると、その行を実行した直後のステップへ移る。</p>
+    </section>
+
+    <section class="panel" id="pCircuit" aria-label="回路">
+      <h2><span id="cirTitle">回路</span><small id="cirSub"></small></h2>
+      <div class="cirbox" id="cirBox"></div>
+      <dl class="status" id="cirStatus"></dl>
+      <p class="flowtext" id="cirText"></p>
+      <div id="waveBox" hidden></div>
+      <p class="assume" id="cirAssume"></p>
+    </section>
+
+    <section class="panel" id="pRegs" aria-label="レジスタ">
+      <h2>レジスタ<small>シミュレータで読んだ値</small></h2>
+      <table class="regs">
+        <thead>
+          <tr><th scope="col">名前</th><th scope="col">値</th>
+            <th scope="col">7</th><th scope="col">6</th><th scope="col">5</th><th scope="col">4</th>
+            <th scope="col">3</th><th scope="col">2</th><th scope="col">1</th><th scope="col">0</th></tr>
+        </thead>
+        <tbody id="regBody"></tbody>
+      </table>
+      <p class="hint" id="regHint"></p>
+    </section>
+  </main>
+
+  <footer class="foot"><ul id="foot"></ul></footer>
+</div>
+
+<script type="application/json" id="data">{"title":"LED を点ける（led.c）","tool":"picviewer 0.1.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"RB0（21 番ピン）を出力にして 1 を出す","fosc_hz":4000000,"source_name":"pic16f886/led.c","source":["// led.c  RB0 を出力にして 1 を出す（LED を点ける）","// PIC16F886  内部クロック 4 MHz  XC8","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","","void main(void)","{","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // AN0-AN4 をデジタルに","    ANSELH = 0b00000000;        // AN8-AN13 をデジタルに","","    TRISA = 0b11111111;         // まず全ピンを入力に","    TRISB = 0b11111111;","    TRISC = 0b11111111;","    PORTA = 0b00000000;         // 出力データを 0 に","    PORTB = 0b00000000;","    PORTC = 0b00000000;","","    TRISBbits.TRISB0 = 0;       // RB0 だけ出力に","    while (1) {","        PORTBbits.RB0 = 1;      // LED を点ける","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISA","mask":255,"bits":["TRISA0","TRISA1","TRISA2","TRISA3","TRISA4","TRISA5","TRISA6","TRISA7"]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTA","mask":255,"bits":["RA0","RA1","RA2","RA3","RA4","RA5","RA6","RA7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":13,"addr":"0x7de","cycles":9,"v":[96,31,63,255,255,255,0,0,0]},{"kind":"step","exec":13,"next":14,"addr":"0x7e2","cycles":13,"v":[96,31,63,255,255,255,0,0,0]},{"kind":"step","exec":14,"next":15,"addr":"0x7e5","cycles":16,"v":[96,0,63,255,255,255,0,0,0]},{"kind":"step","exec":15,"next":17,"addr":"0x7e6","cycles":17,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":17,"next":18,"addr":"0x7ea","cycles":21,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":18,"next":19,"addr":"0x7ec","cycles":23,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":19,"next":20,"addr":"0x7ee","cycles":25,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":20,"next":21,"addr":"0x7f1","cycles":28,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":21,"next":22,"addr":"0x7f2","cycles":29,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":22,"next":24,"addr":"0x7f3","cycles":30,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":24,"next":26,"addr":"0x7f6","cycles":33,"v":[96,0,0,255,254,255,0,0,0]},{"kind":"run","exec":26,"next":26,"addr":"0x7f6","cycles":37,"v":[96,0,0,255,254,255,0,1,0]},{"kind":"step","exec":26,"next":26,"addr":"0x7f6","cycles":41,"v":[96,0,0,255,254,255,0,1,0]},{"kind":"run","exec":26,"next":26,"addr":"0x7f6","cycles":45,"v":[96,0,0,255,254,255,0,1,0]}],"waves":[],"notes":{"13":"内部発振器を 4 MHz に設定する。リセット時と同じ値なので、レジスタは変わらない。","14":"PORTA 側のアナログ入力を無効にする。ピンの状態をデジタルで読めるようになる（出力の働きは変わらない）。","15":"PORTB 側のアナログ入力を無効にする。RB0 は AN12 と兼用のピンで、ここからデジタルで読めるようになる。","17":"PORTA の全ピンを入力に設定する。リセット時と同じ値。","18":"PORTB の全ピンを入力に設定する。RB0 の出力ドライバは止まったまま。","19":"PORTC の全ピンを入力に設定する。","20":"PORTA の出力データを 0 にする。入力に設定してあるのでピンには出ない。","21":"PORTB の出力データを 0 にする。RB0 を出力に切り替えたとき、最初に 0 が出るようになる。","22":"PORTC の出力データを 0 にする。","24":"RB0 だけを出力に切り替える。出力データは 0 なので Nch FET がオンになり、ピンは 0 V。","26":"RB0 の出力データを 1 にする。Nch FET がオフ、Pch FET がオンに切り替わり、ピンは電源の電圧になる。while (1) の中なので、この行をくり返す。"},"circuit":{"type":"led","r_ohm":330,"vf":2.0,"pin":"RB0","io_max_ma":25,"datasheet":"DS41291D"},"counters":[]},{"id":"pic16f1618","device":"PIC16F1618","summary":"RB0 が無いので RB4（13 番ピン）を出力にして 1 を出す","fosc_hz":4000000,"source_name":"pic16f1618/led.c","source":["// led.c  RB4 を出力にして 1 を出す（LED を点ける）","// PIC16F1618 には RB0 が無いので RB4 を使う。内部クロック 4 MHz  XC8","#include <xc.h>","","#pragma config FOSC = INTOSC, WDTE = OFF, PWRTE = OFF, MCLRE = ON","#pragma config CP = OFF, BOREN = ON, CLKOUTEN = OFF, LVP = OFF, PLLEN = OFF","","#define _XTAL_FREQ 4000000","","void main(void)","{","    OSCCON = 0b01101000;        // 内部発振器を 4 MHz に（IRCF = 1101）","    ANSELA = 0b00000000;        // PORTA をデジタルに","    ANSELB = 0b00000000;        // PORTB をデジタルに","    ANSELC = 0b00000000;        // PORTC をデジタルに","","    TRISA = 0b11111111;         // まず全ピンを入力に","    TRISB = 0b11111111;","    TRISC = 0b11111111;","    LATA  = 0b00000000;         // 出力ラッチを 0 に","    LATB  = 0b00000000;","    LATC  = 0b00000000;","","    TRISBbits.TRISB4 = 0;       // RB4 だけ出力に","    while (1) {","        LATBbits.LATB4 = 1;     // LED を点ける","    }","}"],"pack":{"name":"PIC12-16F1xxx_DFP","version":"1.9.258"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","vdd":5.0,"pins":[["VDD"],["RA5","CLKIN"],["RA4","AN3","CLKOUT"],["RA3","VPP","nMCLR","MCLR"],["RC5","HIDC5"],["RC4","HIDC4"],["RC3","AN7","C1IN3-","C2IN3-"],["RC6","AN8"],["RC7","AN9"],["RB7"],["RB6"],["RB5","AN11"],["RB4","AN10"],["RC2","AN6","C1IN2-","C2IN2-"],["RC1","AN5","C1IN1-","C2IN1-"],["RC0","AN4","C2IN+"],["RA2","AN2","ZCDIN"],["RA1","AN1","C2IN0-","C1IN0-","VREF+","ICSPCLK"],["RA0","AN0","C1IN+","DACOUT","ICSPDAT"],["VSS"]],"regs":[{"name":"OSCCON","mask":251,"bits":["SCS0","SCS1",null,"IRCF0","IRCF1","IRCF2","IRCF3","SPLLEN"]},{"name":"ANSELA","mask":23,"bits":["ANSA0","ANSA1","ANSA2",null,"ANSA4",null,null,null]},{"name":"ANSELB","mask":48,"bits":[null,null,null,null,"ANSB4","ANSB5",null,null]},{"name":"ANSELC","mask":207,"bits":["ANSC0","ANSC1","ANSC2","ANSC3",null,null,"ANSC6","ANSC7"]},{"name":"TRISA","mask":63,"bits":["TRISA0","TRISA1","TRISA2","TRISA3","TRISA4","TRISA5",null,null]},{"name":"TRISB","mask":240,"bits":[null,null,null,null,"TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"LATA","mask":63,"bits":["LATA0","LATA1","LATA2","LATA3","LATA4","LATA5",null,null]},{"name":"LATB","mask":240,"bits":[null,null,null,null,"LATB4","LATB5","LATB6","LATB7"]},{"name":"LATC","mask":255,"bits":["LATC0","LATC1","LATC2","LATC3","LATC4","LATC5","LATC6","LATC7"]},{"name":"PORTB","mask":240,"bits":[null,null,null,null,"RB4","RB5","RB6","RB7"]}],"steps":[{"kind":"start","exec":null,"next":12,"addr":"0x7e4","cycles":10,"v":[56,23,48,207,63,240,255,0,0,0,0]},{"kind":"step","exec":12,"next":13,"addr":"0x7e7","cycles":13,"v":[104,23,48,207,63,240,255,0,0,0,0]},{"kind":"step","exec":13,"next":14,"addr":"0x7e9","cycles":15,"v":[104,0,48,207,63,240,255,0,0,0,0]},{"kind":"step","exec":14,"next":15,"addr":"0x7ea","cycles":16,"v":[104,0,0,207,63,240,255,0,0,0,0]},{"kind":"step","exec":15,"next":17,"addr":"0x7eb","cycles":17,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":17,"next":18,"addr":"0x7ee","cycles":20,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":18,"next":19,"addr":"0x7f0","cycles":22,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":19,"next":20,"addr":"0x7f2","cycles":24,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":20,"next":21,"addr":"0x7f4","cycles":26,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":21,"next":22,"addr":"0x7f5","cycles":27,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":22,"next":24,"addr":"0x7f6","cycles":28,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":24,"next":26,"addr":"0x7f8","cycles":30,"v":[104,0,0,0,63,224,255,0,0,0,0]},{"kind":"run","exec":26,"next":26,"addr":"0x7f8","cycles":34,"v":[104,0,0,0,63,224,255,0,16,0,16]},{"kind":"step","exec":26,"next":26,"addr":"0x7f8","cycles":38,"v":[104,0,0,0,63,224,255,0,16,0,16]},{"kind":"run","exec":26,"next":26,"addr":"0x7f8","cycles":42,"v":[104,0,0,0,63,224,255,0,16,0,16]}],"waves":[],"notes":{"12":"内部発振器を 4 MHz に設定する。リセット直後は 500 kHz で動いている。","13":"PORTA のアナログ入力を無効にする。ピンの状態をデジタルで読めるようになる（出力の働きは変わらない）。","14":"PORTB のアナログ入力を無効にする。RB4 は AN10 と兼用のピンで、ここからデジタルで読めるようになる。","15":"PORTC のアナログ入力を無効にする。","17":"PORTA の全ピンを入力に設定する。RA3 は入力専用のピンなので TRISA3 は 1 のまま。","18":"PORTB の全ピンを入力に設定する。RB4 の出力ドライバは止まったまま。","19":"PORTC の全ピンを入力に設定する。","20":"PORTA の出力ラッチを 0 にする。入力に設定してあるのでピンには出ない。","21":"PORTB の出力ラッチを 0 にする。RB4 を出力に切り替えたとき、最初に 0 が出るようになる。","22":"PORTC の出力ラッチを 0 にする。","24":"RB4 だけを出力に切り替える。出力ラッチは 0 なので Nch FET がオンになり、ピンは 0 V。","26":"RB4 の出力ラッチを 1 にする。Nch FET がオフ、Pch FET がオンに切り替わり、ピンは電源の電圧になる。while (1) の中なので、この行をくり返す。"},"circuit":{"type":"led","r_ohm":330,"vf":2.0,"pin":"RB4","io_max_ma":50,"datasheet":"DS40001769C"},"counters":[]}]}</script>
+<script>
+window.PicViewer = { circuits: {}, util: {} };
+/* led: one port pin drives an LED through a resistor. Shows the pin's output FETs and the current path. */
+(() => {
+  'use strict';
+
+  const SVG = `
+<svg id="cir" viewBox="0 0 740 410" role="img" aria-label="PIC の出力ピンと LED の回路">
+  <defs><path id="ah" d="M-6 -6.5 L7 0 L-6 6.5 Z"/></defs>
+  <g class="wire">
+    <path d="M60 197 V44 H690"/>
+    <path d="M60 211 V366 H690"/>
+    <path d="M372 44 V96"/>
+    <path d="M372 314 V366"/>
+    <path d="M480 205 H530"/>
+    <path d="M600 205 H660"/>
+    <path class="w-source" d="M660 205 V262 M660 292 V366"/>
+    <path class="w-sink" d="M660 44 V104 M660 134 V205"/>
+  </g>
+  <rect class="body" x="184" y="96" width="296" height="218" rx="6"/>
+  <g class="wire">
+    <path d="M372 96 V130 M372 164 V246 M372 280 V314 M372 205 H480"/>
+    <path class="ctl" d="M346 190 H355 V147 H364 M346 220 H355 V263 H364"/>
+  </g>
+  <g id="gCur"></g>
+  <line class="plate" x1="42" y1="197" x2="78" y2="197"/>
+  <line class="plate thick" x1="50" y1="211" x2="70" y2="211"/>
+  <text class="big" x="22" y="196">+</text>
+  <text class="big" x="25" y="228">-</text>
+  <text x="90" y="200">電源</text>
+  <text x="90" y="222" id="lSupply">5 V</text>
+  <text class="dim" x="150" y="32" id="lRailTop">+5 V の線</text>
+  <text class="dim" x="150" y="391">GND (0 V) の線</text>
+  <text class="big" x="196" y="121" id="lDev" font-weight="700">PIC</text>
+  <rect class="box" x="194" y="164" width="152" height="82" rx="5"/>
+  <text class="dim small" x="203" y="183">方向と出力データ</text>
+  <text x="203" y="208" id="lTris">TRIS</text>
+  <text x="203" y="233" id="lData">DATA</text>
+  <g class="sw" id="swP">
+    <line class="gate" x1="365" y1="137" x2="365" y2="157"/>
+    <line class="lever" x1="372" y1="164" x2="372" y2="130" style="transform-origin:372px 164px"/>
+    <circle class="dot" cx="372" cy="130" r="3"/><circle class="dot" cx="372" cy="164" r="3"/>
+    <text x="402" y="145">Pch FET</text>
+    <text x="402" y="166" id="lPch">オフ</text>
+  </g>
+  <g class="sw" id="swN">
+    <line class="gate" x1="365" y1="253" x2="365" y2="273"/>
+    <line class="lever" x1="372" y1="280" x2="372" y2="246" style="transform-origin:372px 280px"/>
+    <circle class="dot" cx="372" cy="246" r="3"/><circle class="dot" cx="372" cy="280" r="3"/>
+    <text x="402" y="261">Nch FET</text>
+    <text x="402" y="282" id="lNch">オフ</text>
+  </g>
+  <circle class="dot" cx="372" cy="205" r="3"/>
+  <circle class="dot" cx="372" cy="96" r="4.5"/>
+  <circle class="dot" cx="372" cy="314" r="4.5"/>
+  <circle class="dot" cx="480" cy="205" r="4.5"/>
+  <text x="383" y="80" id="lVdd">VDD</text>
+  <text x="383" y="347" id="lVss">VSS</text>
+  <text x="488" y="239" id="lPin">PIN</text>
+  <text class="dim" x="488" y="260" id="lVolt"></text>
+  <rect class="comp" x="530" y="194" width="70" height="22" rx="2"/>
+  <text x="565" y="181" text-anchor="middle" id="lR">抵抗</text>
+  <g class="w-source">
+    <circle class="halo" cx="660" cy="277" r="27"/>
+    <path class="led-body" d="M644 262 H676 L660 290 Z"/>
+    <line class="led-bar" x1="644" y1="292" x2="676" y2="292"/>
+    <text class="big" x="688" y="272">LED</text>
+    <text class="dim ledState" x="688" y="292">消灯</text>
+  </g>
+  <g class="w-sink">
+    <circle class="halo" cx="660" cy="119" r="27"/>
+    <path class="led-body" d="M644 104 H676 L660 132 Z"/>
+    <line class="led-bar" x1="644" y1="134" x2="676" y2="134"/>
+    <text class="big" x="688" y="114">LED</text>
+    <text class="dim ledState" x="688" y="134">消灯</text>
+  </g>
+</svg>`;
+
+  // current paths in the drawing's coordinates, with arrows placed between the parts
+  const PATHS = {
+    source: {
+      pts: [[60, 197], [60, 44], [372, 44], [372, 205], [660, 205], [660, 366], [60, 366], [60, 211]],
+      arrows: [[60, 120, -90], [215, 44, 0], [372, 72, 90], [430, 205, 0], [506, 205, 0], [632, 205, 0],
+        [660, 332, 90], [520, 366, 180], [215, 366, 180], [60, 290, -90]],
+    },
+    sink: {
+      pts: [[60, 197], [60, 44], [660, 44], [660, 205], [372, 205], [372, 366], [60, 366], [60, 211]],
+      arrows: [[60, 120, -90], [215, 44, 0], [520, 44, 0], [660, 76, 90], [660, 172, 90], [630, 205, 180],
+        [504, 205, 180], [428, 205, 180], [372, 342, 90], [215, 366, 180], [60, 290, -90]],
+    },
+  };
+
+  const values = (t, cfg) => ({ vdd: t.vdd || 5, r: cfg.r_ohm || 330, vf: cfg.vf === undefined ? 2.0 : cfg.vf });
+  const volts = (v, U) => U.num(v, Number.isInteger(v) ? 0 : 1);
+
+  window.PicViewer.circuits.led = {
+    title: '回路と電流',
+    options: [{
+      key: 'wire', legend: 'LED のつなぎ方（仮定）', default: 'source',
+      choices: [{ value: 'source', label: '1 で点灯（ピンと GND の間）' }, { value: 'sink', label: '0 で点灯（電源とピンの間）' }],
+    }],
+    setup(ctx) {
+      const { t, cfg, box, U } = ctx;
+      const pb = U.portBit(cfg.pin);
+      if (!pb) {
+        box.append(U.el('p', 'hint', 'circuit.pin に LED をつなぐピンの名前（例 RB0）を書く。'));
+        return {};
+      }
+      box.innerHTML = SVG;
+      const svg = box.querySelector('#cir');
+      const { vdd, r, vf } = values(t, cfg);
+      const set = (id, s) => { svg.querySelector('#' + id).textContent = s; };
+      set('lDev', t.device);
+      set('lVdd', `VDD  ${U.pinsWith(t, 'VDD').join('、')} 番ピン`);
+      set('lVss', `VSS  ${U.pinsWith(t, 'VSS').join('、')} 番ピン`);
+      set('lPin', `${cfg.pin}  ${U.pinsWith(t, cfg.pin).join('、')} 番ピン`);
+      set('lSupply', `${volts(vdd, U)} V`);
+      set('lRailTop', `+${volts(vdd, U)} V の線`);
+      set('lR', `抵抗 ${r} Ω`);
+      const mA = Math.round(((vdd - vf) / r) * 1000);
+      const limit = cfg.io_max_ma ? `I/O ピン 1 本の絶対最大定格は ${cfg.io_max_ma} mA${cfg.datasheet ? `（${cfg.datasheet}）` : ''}。` : '';
+      return {
+        sub: 'LED のまわりは仮定の回路',
+        assume: `電流の見積もり: (電源 ${volts(vdd, U)} V - LED の順方向電圧 ${U.num(vf)} V) / 抵抗 ${r} Ω = 約 ${mA} mA（FET のオン抵抗は無視）。${limit}`,
+        regHint: `TRIS${pb.port} は 1 が入力、0 が出力。太い枠のビットが LED をつなぐ ${cfg.pin}。`,
+        marks: ['TRIS', 'PORT', 'LAT'].map((p) => ({ reg: p + pb.port, bit: pb.bit })),
+        foot: [`LED と抵抗のつなぎ方、抵抗 ${r} Ω、順方向電圧 ${U.num(vf)} V は仮定。実際の基板に合わせて circuit の値を直す。電源電圧はデバイス定義ファイルの公称値。`],
+      };
+    },
+    update(ctx) {
+      const { t, cfg, box, R, U, opts } = ctx;
+      const svg = box.querySelector('#cir');
+      const pb = U.portBit(cfg.pin);
+      if (!svg || !pb) return {};
+      const trisReg = R['TRIS' + pb.port];
+      const latch = U.latchOf(R, pb.port);
+      if (trisReg === undefined || latch === undefined) {
+        return { text: `TRIS${pb.port} と PORT${pb.port}（または LAT${pb.port}）を registers に入れると、ピンの状態が描ける。` };
+      }
+      const { vdd, r, vf } = values(t, cfg);
+      const tris = (trisReg >> pb.bit) & 1;
+      const data = (latch >> pb.bit) & 1;
+      const drive = tris ? 'hiz' : (data ? 'high' : 'low');
+      const wire = opts.wire;
+      const flow = wire === 'source' && drive === 'high' ? 'source' : wire === 'sink' && drive === 'low' ? 'sink' : 'none';
+      const lit = flow !== 'none';
+      const mA = Math.round(((vdd - vf) / r) * 1000);
+      const volt = drive === 'high' ? `約 ${volts(vdd, U)} V` : drive === 'low' ? '約 0 V' : 'ハイインピーダンス';
+
+      svg.dataset.wire = wire;
+      svg.dataset.lit = lit ? '1' : '0';
+      const g = svg.querySelector('#gCur');
+      g.replaceChildren();
+      if (lit) U.drawPath(g, PATHS[flow].pts, '', { arrows: PATHS[flow].arrows });
+      const sw = (id, label, on) => {
+        svg.querySelector('#' + id).classList.toggle('on', on);
+        const tx = svg.querySelector('#' + label);
+        tx.textContent = on ? 'オン' : 'オフ';
+        tx.setAttribute('class', on ? 'em' : 'dim');
+      };
+      sw('swP', 'lPch', drive === 'high');
+      sw('swN', 'lNch', drive === 'low');
+      const latchName = R['LAT' + pb.port] !== undefined ? `LAT${pb.port}${pb.bit}` : cfg.pin;
+      const word = U.svgEl('tspan', { dx: '8', class: 'dim' });
+      word.textContent = tris ? '入力' : '出力';
+      svg.querySelector('#lTris').replaceChildren(`TRIS${pb.port}${pb.bit} = ${tris}`, word);
+      svg.querySelector('#lData').textContent = `${latchName} = ${data}`;
+      svg.querySelector('#lVolt').textContent = volt;
+      svg.querySelectorAll('.ledState').forEach((tx) => {
+        tx.textContent = lit ? '点灯' : '消灯';
+        tx.setAttribute('class', lit ? 'em ledState' : 'dim ledState');
+      });
+
+      const pin = cfg.pin;
+      const text = {
+        'source/high': `電流が流れる。電源のプラス側から VDD、Pch FET、${pin}、抵抗、LED、GND の順に通って、電源のマイナス側へ戻る。`,
+        'source/low': `電流は流れない。Nch FET がオンで ${pin} は約 0 V になり、LED の両端に電圧がかからない。`,
+        'sink/low': `電流が流れる。電源のプラス側から LED、抵抗、${pin}、Nch FET、VSS、GND の順に通って、電源のマイナス側へ戻る。`,
+        'sink/high': `電流は流れない。Pch FET がオンで ${pin} は約 ${volts(vdd, U)} V になり、LED の両端が同じ電圧になる。`,
+      }[`${wire}/${drive}`] || `電流は流れない。FET は両方オフで、${pin} は PIC の中でどこにもつながっていない。`;
+      return {
+        status: [
+          { label: 'Pch FET', value: drive === 'high' ? 'オン' : 'オフ', tone: drive === 'high' ? 'on' : '' },
+          { label: 'Nch FET', value: drive === 'low' ? 'オン' : 'オフ', tone: drive === 'low' ? 'on' : '' },
+          { label: `${pin} の電圧`, value: volt },
+          { label: 'LED', value: lit ? '点灯' : '消灯', tone: lit ? 'on' : '' },
+          { label: 'LED の電流', value: lit ? `約 ${mA} mA` : '0 mA', tone: lit ? 'on' : '' },
+        ],
+        text,
+        probe: { drive, flow, lit },
+      };
+    },
+  };
+})();
+
+/* pins: the default view. Direction and value of every port pin, from TRISx and PORTx / LATx. */
+(() => {
+  'use strict';
+
+  function pinNames(t, cfg) {
+    if (Array.isArray(cfg.pins) && cfg.pins.length) return cfg.pins.map((p) => String(p).toUpperCase());
+    const out = [];
+    t.regs.forEach((r) => {
+      const m = /^TRIS([A-Z])$/.exec(r.name);
+      if (!m) return;
+      for (let b = 0; b < 8; b++) if ((r.mask >> b) & 1) out.push(`R${m[1]}${b}`);
+    });
+    return out;
+  }
+
+  window.PicViewer.circuits.pins = {
+    title: 'ピン',
+    options: [],
+    setup(ctx) {
+      const { t, cfg, box, U } = ctx;
+      const names = pinNames(t, cfg).filter((n) => U.portBit(n));
+      if (!names.length) {
+        box.append(U.el('p', 'hint', 'ピンを出すには、TRISx と PORTx（または LATx）を registers に入れる。'));
+        return {};
+      }
+      const grid = U.el('div', 'pins');
+      names.forEach((name) => {
+        const card = U.el('div', 'pin');
+        card.dataset.pin = name;
+        const no = U.pinsWith(t, name);
+        card.append(U.el('b', '', name), U.el('span', 'no', no.length ? `${no.join('、')} 番` : ''),
+          U.el('span', 'dir', ''), U.el('span', 'lv', ''));
+        grid.append(card);
+      });
+      box.append(grid);
+      return {
+        sub: 'TRIS と PORT / LAT から見た、各ピンの向きと値',
+        assume: 'TRIS のビットが 0 なら出力、1 なら入力。値は PORT のビット（PORT を読んでいなければ LAT）。オレンジの枠は直前のステップから変わったピン。',
+      };
+    },
+    update(ctx) {
+      const { box, R, P, U } = ctx;
+      const outs = [];
+      box.querySelectorAll('.pin').forEach((card) => {
+        const pb = U.portBit(card.dataset.pin);
+        const read = (regs, prefix) => (regs && regs[prefix + pb.port] !== undefined ? (regs[prefix + pb.port] >> pb.bit) & 1 : null);
+        const level = (regs) => { const v = read(regs, 'PORT'); return v !== null ? v : read(regs, 'LAT'); };
+        const dir = read(R, 'TRIS');
+        const lv = level(R);
+        card.classList.toggle('out', dir === 0);
+        card.classList.toggle('hi', lv === 1);
+        card.classList.toggle('chg', Boolean(P) && (read(P, 'TRIS') !== dir || level(P) !== lv));
+        card.querySelector('.dir').textContent = dir === null ? '?' : (dir ? '入力' : '出力');
+        card.querySelector('.lv').textContent = lv === null ? '?' : String(lv);
+        if (dir === 0) outs.push(`${card.dataset.pin} = ${lv}`);
+      });
+      return { text: outs.length ? `出力のピン: ${outs.join('、')}` : '出力のピンは無い（すべて入力）。', probe: { outputs: outs } };
+    },
+  };
+})();
+
+/* PIC viewer core: step controls, source, registers and explanation.
+   A circuit view plugs in through PicViewer.circuits[type] = { title, options, setup(ctx), update(ctx) }. */
+(() => {
+  'use strict';
+  const PV = window.PicViewer;
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const NS = 'http://www.w3.org/2000/svg';
+  const PLAY_MS = 1400;
+  const $ = (id) => document.getElementById(id);
+  const S = { t: 0, step: 0, opts: {}, timer: null, probe: null };
+
+  // ---------------- helpers, also used by the circuits
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const svgEl = (tag, attrs = {}) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+  };
+  const num = (v, d = 1) => Number(v).toFixed(d);
+  const hex = (v) => '0x' + v.toString(16).toUpperCase().padStart(2, '0');
+  const pinsWith = (t, fn) => {
+    const f = fn.toUpperCase();
+    const out = [];
+    t.pins.forEach((names, i) => { if (names.some((n) => n.toUpperCase() === f)) out.push(i + 1); });
+    return out;
+  };
+  const portBit = (pin) => {
+    const m = /^R([A-Z])(\d)$/i.exec(pin || '');
+    return m ? { port: m[1].toUpperCase(), bit: Number(m[2]) } : null;
+  };
+  // the output latch of a port: LATx when it was read, PORTx otherwise
+  const latchOf = (R, port) => (R['LAT' + port] !== undefined ? R['LAT' + port] : R['PORT' + port]);
+  // a current path: an orange line, moving dots, and arrows (explicit [x, y, angle] or along long segments)
+  function drawPath(g, pts, cls, opt = {}) {
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
+    g.append(svgEl('path', { class: 'cur ' + cls, d }));
+    g.append(svgEl('path', { class: 'flow ' + cls, d }));
+    const arrow = (x, y, ang) => g.append(svgEl('use', { href: '#ah', class: 'ah', transform: `translate(${x} ${y}) rotate(${ang})` }));
+    if (Array.isArray(opt.arrows)) { opt.arrows.forEach(([x, y, a]) => arrow(x, y, a)); return; }
+    if (opt.arrows === false) return;
+    pts.slice(1).forEach((q, i) => {
+      const p = pts[i];
+      if (Math.hypot(q[0] - p[0], q[1] - p[1]) < 70) return;
+      const mx = (p[0] + q[0]) / 2;
+      const my = (p[1] + q[1]) / 2;
+      if ((opt.skip || []).some(([x0, y0, x1, y1]) => mx >= x0 && mx <= x1 && my >= y0 && my <= y1)) return;
+      arrow(mx, my, Math.atan2(q[1] - p[1], q[0] - p[0]) * 180 / Math.PI);
+    });
+  }
+  PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, drawPath };
+
+  // ---------------- data helpers
+  const tgt = () => D.targets[S.t];
+  const last = () => tgt().steps.length - 1;
+  const circuitOf = (t) => PV.circuits[t.circuit.type] || PV.circuits.pins;
+  const isCounter = (t, name) => t.counters.indexOf(name) >= 0;
+  const instrHz = (t) => (t.fosc_hz ? t.fosc_hz / 4 : null);
+  const bitName = (r, b) => r.bits[b] || `${r.name}<${b}>`;
+  const codeOf = (line) => { const i = line.indexOf('//'); return (i < 0 ? line : line.slice(0, i)).trim(); };
+  const fmtTime = (s) => (s < 1e-3 ? `${num(s * 1e6, 1)} µs` : s < 1 ? `${num(s * 1e3, 3)} ms` : `${num(s, 3)} 秒`);
+
+  function regsAt(t, step) {
+    const R = {};
+    if (step) t.regs.forEach((r, i) => { R[r.name] = step.v[i]; });
+    return R;
+  }
+
+  function changedBits(t, st, prev) {
+    const out = [];
+    if (!prev) return out;
+    t.regs.forEach((r, i) => {
+      if (isCounter(t, r.name)) return;
+      const diff = (prev.v[i] ^ st.v[i]) & r.mask;
+      for (let b = 7; b >= 0; b--) {
+        if ((diff >> b) & 1) out.push({ name: bitName(r, b), from: (prev.v[i] >> b) & 1, to: (st.v[i] >> b) & 1 });
+      }
+    });
+    return out;
+  }
+
+  // ---------------- one-time and per-target building
+  function buildTargets() {
+    const box = $('targetOpts');
+    box.replaceChildren();
+    D.targets.forEach((t, i) => {
+      const label = el('label');
+      const input = el('input');
+      input.type = 'radio'; input.name = 'target'; input.value = String(i); input.checked = i === S.t;
+      input.addEventListener('change', () => { S.t = i; stop(); buildTarget(); });
+      label.append(input, el('span', '', t.device));
+      box.append(label);
+    });
+  }
+
+  function buildOptions(c) {
+    document.querySelectorAll('#choices .seg.opt').forEach((n) => n.remove());
+    (c.options || []).forEach((o) => {
+      if (!o.choices.some((ch) => ch.value === S.opts[o.key])) S.opts[o.key] = o.default || o.choices[0].value;
+      const fs = el('fieldset', 'seg opt');
+      fs.append(el('legend', '', o.legend));
+      const box = el('div', 'opts');
+      o.choices.forEach((ch) => {
+        const label = el('label');
+        const input = el('input');
+        input.type = 'radio'; input.name = 'opt-' + o.key; input.value = ch.value; input.checked = S.opts[o.key] === ch.value;
+        input.addEventListener('change', () => { S.opts[o.key] = ch.value; update(); });
+        label.append(input, el('span', '', ch.label));
+        box.append(label);
+      });
+      fs.append(box);
+      $('choices').append(fs);
+    });
+  }
+
+  function buildSource(t) {
+    const ran = new Set(t.steps.map((s) => s.exec).filter((n) => n !== null));
+    const code = $('code');
+    code.replaceChildren();
+    t.source.forEach((line, i) => {
+      const no = i + 1;
+      const li = el('li');
+      li.dataset.line = String(no);
+      const tx = el('span', 'tx');
+      const cut = line.indexOf('//');
+      if (cut < 0) tx.textContent = line;
+      else tx.append(line.slice(0, cut), el('span', 'cm', line.slice(cut)));
+      li.append(el('span', 'ln', String(no)), tx);
+      if (ran.has(no)) {
+        li.classList.add('run');
+        li.tabIndex = 0;
+        const jump = () => { stop(); setStep(t.steps.findIndex((s) => s.exec === no)); };
+        li.addEventListener('click', jump);
+        li.addEventListener('keydown', (e) => { if (e.key === 'Enter') { jump(); e.preventDefault(); } });
+      }
+      code.append(li);
+    });
+  }
+
+  function buildRegs(t, marks) {
+    const body = $('regBody');
+    body.replaceChildren();
+    t.regs.forEach((r) => {
+      const tr = el('tr');
+      const th = el('th', '', r.name);
+      th.scope = 'row';
+      tr.append(th, el('td', 'val'));
+      for (let b = 7; b >= 0; b--) {
+        const td = el('td');
+        const bit = el('span', 'bit');
+        if (!((r.mask >> b) & 1)) { bit.classList.add('none'); bit.textContent = '-'; bit.title = `${r.name} のビット ${b} は無い`; }
+        else bit.title = `${bitName(r, b)}（ビット ${b}）`;
+        if (marks.some((m) => m.reg === r.name && m.bit === b)) bit.classList.add('mark');
+        td.append(bit);
+        tr.append(td);
+      }
+      body.append(tr);
+    });
+  }
+
+  function buildFoot(t, extra) {
+    const hz = instrHz(t);
+    const lines = [
+      `レジスタの値と実行の順番は、MPLAB X ${t.tools.mplabx || ''} のシミュレータ（mdb）で ${t.source_name} を実行して読んだ値（コンパイラ XC8 ${t.tools.xc8 || ''}、記録 ${t.traced}）。`,
+      `ピン番号とビットの有無は Microchip のデバイス定義ファイル（${t.pack.name} ${t.pack.version}）から。`,
+      hz ? `時間は命令サイクル数を 1 秒あたり ${hz / 1e6} M 命令（Fosc ${t.fosc_hz / 1e6} MHz の 4 分の 1）で割った値。` : '',
+      ...extra,
+      `作成: ${D.tool}`,
+    ].filter(Boolean);
+    $('foot').replaceChildren(...lines.map((s) => el('li', '', s)));
+  }
+
+  function ctxBase(t) {
+    return { t, cfg: t.circuit, box: $('cirBox'), opts: S.opts, U: PV.util };
+  }
+
+  function buildTarget() {
+    const t = tgt();
+    const c = circuitOf(t);
+    S.step = Math.min(S.step, last());
+    $('slider').max = String(last());
+    $('srcName').textContent = t.source_name;
+    $('subtitle').textContent = t.summary
+      ? `${t.device}: ${t.summary}`
+      : `${t.device} の ${t.source_name} を MPLAB X のシミュレータで実行した記録。`;
+    buildSource(t);
+    buildOptions(c);
+    $('cirTitle').textContent = c.title || '回路';
+    $('cirBox').replaceChildren();
+    const info = c.setup(ctxBase(t)) || {};
+    buildRegs(t, info.marks || []);
+    $('cirSub').textContent = info.sub || '';
+    $('cirAssume').textContent = info.assume || '';
+    const counterHint = t.counters.length ? `${t.counters.join('、')} は数え続けるカウンタなので、変化の印を付けない。` : '';
+    $('regHint').textContent = ['オレンジの枠は直前のステップから変わったビット。- はそのマイコンに無いビット。', info.regHint || '', counterHint]
+      .filter(Boolean).join(' ');
+    buildFoot(t, info.foot || []);
+    update();
+  }
+
+  // ---------------- per-step painting
+  function explain(t, st, prev) {
+    const regsChanged = [];
+    if (prev) t.regs.forEach((r, i) => { if (!isCounter(t, r.name) && prev.v[i] !== st.v[i]) regsChanged.push(`${r.name} ${hex(prev.v[i])} から ${hex(st.v[i])}`); });
+    if (st.exec === null) {
+      $('exNo').textContent = '';
+      $('exCode').textContent = 'まだ無い';
+      $('exNote').textContent = 'リセット直後。main の最初の行はまだ実行していない。';
+    } else {
+      $('exNo').textContent = `${st.exec} 行目`;
+      $('exCode').textContent = codeOf(t.source[st.exec - 1] || '');
+      const repeat = prev && prev.exec === st.exec && regsChanged.length === 0;
+      const bits = changedBits(t, st, prev);
+      const auto = bits.length ? '変わったビット: ' + bits.map((b) => `${b.name} が ${b.from} から ${b.to}`).join('、') : 'レジスタの変化は無い。';
+      $('exNote').textContent = repeat ? '同じ行をもう一度実行した（ループの中）。レジスタは変わらない。' : (t.notes[String(st.exec)] || auto);
+    }
+    $('exDelta').textContent = prev ? (regsChanged.length ? `変わったレジスタ: ${regsChanged.join('、')}` : '変わったレジスタ: なし') : '';
+    $('exDelta').className = regsChanged.length ? 'delta' : '';
+    const hz = instrHz(t);
+    $('exMeta').textContent = `次に実行する行: ${st.next} 行目（アドレス ${st.addr}）　リセットからの命令サイクル数: ${st.cycles}`
+      + (hz ? `（${fmtTime(st.cycles / hz)}）` : '');
+  }
+
+  function paintSource(st) {
+    const code = $('code');
+    code.querySelectorAll('li').forEach((li) => li.classList.toggle('cur', Number(li.dataset.line) === st.exec));
+    const cur = code.querySelector('li.cur');
+    if (cur && code.scrollHeight > code.clientHeight) {   // keep the executed line inside the listing's own scroll box
+      const box = code.getBoundingClientRect();
+      const row = cur.getBoundingClientRect();
+      const margin = row.height * 2;
+      if (row.top < box.top + margin) code.scrollTop -= box.top + margin - row.top;
+      else if (row.bottom > box.bottom - margin) code.scrollTop += row.bottom - (box.bottom - margin);
+    }
+  }
+
+  function paintRegs(t, st, prev) {
+    [...$('regBody').rows].forEach((tr, i) => {
+      const r = t.regs[i];
+      const v = st.v[i];
+      const pv = prev ? prev.v[i] : v;
+      const counter = isCounter(t, r.name);
+      tr.classList.toggle('chg', pv !== v && !counter);
+      tr.cells[1].textContent = hex(v);
+      tr.cells[1].title = pv !== v ? `直前の値は ${hex(pv)}` : '';
+      for (let b = 7; b >= 0; b--) {
+        const bit = tr.cells[2 + (7 - b)].firstChild;
+        if (!((r.mask >> b) & 1)) continue;
+        const one = (v >> b) & 1;
+        bit.textContent = String(one);
+        bit.classList.toggle('one', one === 1);
+        bit.classList.toggle('flip', ((pv ^ v) >> b & 1) === 1 && !counter);
+      }
+    });
+  }
+
+  function paintStatus(list) {
+    $('cirStatus').replaceChildren(...list.map((s) => {
+      const d = el('div', s.tone || '');
+      d.append(el('dt', '', s.label), el('dd', '', s.value));
+      return d;
+    }));
+  }
+
+  function waveCaption(w, hz) {
+    const range = (a) => (Math.min(...a) === Math.max(...a) ? `${a[0]}` : `${Math.min(...a)}〜${Math.max(...a)}`);
+    const avg = (a) => a.reduce((s, x) => s + x, 0) / a.length;
+    const parts = [];
+    if (w.periods.length) parts.push(`周期 ${range(w.periods)} サイクル` + (hz ? `（約 ${num(hz / avg(w.periods) / 1000)} kHz）` : ''));
+    if (w.highs.length) parts.push(`H の長さ ${range(w.highs)} サイクル`);
+    if (w.periods.length && w.highs.length) parts.push(`デューティ 約 ${Math.round((avg(w.highs) / avg(w.periods)) * 100)} %`);
+    else parts.push(`この間ずっと ${w.edges[0][1] ? 'H' : 'L'}` );
+    return parts.join('、') + '。1 命令は 1〜2 サイクルなので、変わり目の位置は 1〜2 サイクルずれうる。';
+  }
+
+  function paintWaves(t, st) {
+    const box = $('waveBox');
+    const list = (t.waves || []).filter((w) => w.at === st.next);
+    box.hidden = list.length === 0;
+    box.replaceChildren();
+    const hz = instrHz(t);
+    list.forEach((w) => {
+      const W = 600, H = 40, hi = 5, lo = H - 5;
+      const span = Math.max(1, w.end - w.start);
+      const x = (c) => (((c - w.start) / span) * W).toFixed(1);
+      const pts = [];
+      w.edges.forEach(([c, lv], i) => {
+        if (i > 0) pts.push(`${x(c)},${w.edges[i - 1][1] ? hi : lo}`);
+        pts.push(`${x(c)},${lv ? hi : lo}`);
+      });
+      pts.push(`${W},${w.edges[w.edges.length - 1][1] ? hi : lo}`);
+      const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `${w.pin} の波形` });
+      svg.append(svgEl('polyline', { points: pts.join(' ') }));
+      const card = el('div', 'wave');
+      card.append(el('p', 'head', `${w.pin} の実際の波形: シミュレータで ${w.at} 行目に止めてから ${w.samples} 命令、1 命令ずつピンを読んだ（${w.end - w.start} サイクル分）`),
+        svg, el('p', 'cap', waveCaption(w, hz)));
+      box.append(card);
+    });
+  }
+
+  function update() {
+    const t = tgt();
+    const st = t.steps[S.step];
+    const prev = S.step > 0 ? t.steps[S.step - 1] : null;
+    $('slider').value = String(S.step);
+    $('stepLabel').textContent = `ステップ ${S.step} / ${last()}`;
+    $('bFirst').disabled = $('bPrev').disabled = S.step === 0;
+    $('bNext').disabled = $('bLast').disabled = S.step === last();
+    explain(t, st, prev);
+    paintSource(st);
+    paintRegs(t, st, prev);
+    const res = circuitOf(t).update({ ...ctxBase(t), st, prev, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null, fmtTime, instrHz: instrHz(t) }) || {};
+    paintStatus(res.status || []);
+    $('cirText').textContent = res.text || '';
+    S.probe = res.probe || null;
+    paintWaves(t, st);
+    writeHash(t);
+  }
+
+  // ---------------- state, hash and controls
+  function writeHash(t) {
+    const p = new URLSearchParams({ target: t.id, step: String(S.step) });
+    (circuitOf(t).options || []).forEach((o) => p.set(o.key, S.opts[o.key]));
+    try { history.replaceState(null, '', '#' + p.toString()); } catch (e) { /* file:// may refuse */ }
+  }
+  function readHash() {
+    const p = new URLSearchParams(location.hash.slice(1));
+    const i = D.targets.findIndex((t) => t.id === p.get('target'));
+    if (i >= 0) S.t = i;
+    const n = Number.parseInt(p.get('step'), 10);
+    if (Number.isFinite(n)) S.step = Math.max(0, n);
+    for (const [k, v] of p.entries()) if (k !== 'target' && k !== 'step') S.opts[k] = v;
+  }
+  function setStep(n) { S.step = Math.max(0, Math.min(last(), n)); update(); }
+  function stop() {
+    if (S.timer) clearInterval(S.timer);
+    S.timer = null;
+    $('bPlay').textContent = '再生';
+    $('bPlay').setAttribute('aria-pressed', 'false');
+  }
+  function play() {
+    if (S.step >= last()) setStep(0);
+    S.timer = setInterval(() => { if (S.step >= last()) stop(); else setStep(S.step + 1); }, PLAY_MS);
+    $('bPlay').textContent = '停止';
+    $('bPlay').setAttribute('aria-pressed', 'true');
+  }
+
+  $('bFirst').addEventListener('click', () => { stop(); setStep(0); });
+  $('bPrev').addEventListener('click', () => { stop(); setStep(S.step - 1); });
+  $('bNext').addEventListener('click', () => { stop(); setStep(S.step + 1); });
+  $('bLast').addEventListener('click', () => { stop(); setStep(last()); });
+  $('bPlay').addEventListener('click', () => { if (S.timer) stop(); else play(); });
+  $('slider').addEventListener('input', (e) => { stop(); setStep(Number(e.target.value)); });
+  document.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;   // the slider and the radios keep their own keys
+    if (e.key === 'ArrowRight') { stop(); setStep(S.step + 1); }
+    else if (e.key === 'ArrowLeft') { stop(); setStep(S.step - 1); }
+    else if (e.key === 'Home') { stop(); setStep(0); }
+    else if (e.key === 'End') { stop(); setStep(last()); }
+    else if (e.key === ' ' && tag !== 'BUTTON' && tag !== 'LI') { if (S.timer) stop(); else play(); }
+    else return;
+    e.preventDefault();
+  });
+
+  // read-only view of the state, for checks run from a browser driver
+  PV.state = () => {
+    const t = tgt();
+    const st = t.steps[S.step];
+    return { target: t.id, step: S.step, last: last(), exec: st.exec, next: st.next,
+      opts: { ...S.opts }, playing: Boolean(S.timer), probe: S.probe };
+  };
+
+  readHash();
+  document.title = D.title;
+  $('title').textContent = D.title;
+  buildTargets();
+  buildTarget();
+})();
+
+</script>
+</body>
+</html>
