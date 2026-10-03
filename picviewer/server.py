@@ -96,7 +96,8 @@ class Handler(SimpleHTTPRequestHandler):
         return TEXT_TYPES.get(Path(str(path)).suffix.lower()) or super().guess_type(path)
 
     def log_message(self, fmt, *args):
-        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+        if sys.stderr is not None:      # None under pythonw, where there is no console to write to
+            sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
 
 def make_server(root, port):

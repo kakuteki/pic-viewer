@@ -379,6 +379,9 @@ class ServerTest(TempDirTest):
                 self.assertIn("A page", r.read().decode("utf-8"))
             with urllib.request.urlopen(base + "/a.html") as r:
                 self.assertEqual(r.headers["Cache-Control"], "no-store")
+            with mock.patch("sys.stderr", None):      # pythonw has no console
+                with urllib.request.urlopen(base + "/a.html") as r:
+                    self.assertEqual(r.status, 200)
         finally:
             srv.shutdown()
             srv.server_close()
