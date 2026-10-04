@@ -348,7 +348,7 @@ def loop_shape(code, aliases):
             loops = [(line_of(a), line_of(b)) for k, a, b in statements_in(text, bs, be) if k in ("while", "for", "do")]
             if len(loops) >= 2:
                 tested = {f"R{a}{b}" for a, b in re.findall(r"PORT([A-E])bits\.R[A-E](\d)", text[f.end():close])}
-                shape["if_loops"].append((tested, line_of(f.start()), loops))
+                shape["if_loops"].append((tested, line_of(f.start()), loops, text[f.end():close]))
     for f in re.finditer(r"\bfor\s*\(", text):
         s, e = statement_at(text, f.start())
         shape["fors"].append((line_of(s), line_of(e)))
@@ -457,7 +457,8 @@ def analyze(text, board=False):
             "int_edge": None, "line_writes": {}, "line_bits": {}, "whole_writes": Counter(), "const_lines": set(),
             "tris_line": {}, "delays_us": {}, "combos": [], "counted": set(), "shape": None, "isr_writes": Counter(),
             "test_lines": {}, "bit_targets": set(), "port_consts": {}, "events": [], "digit_pins": set(),
-            "digit_place": {}, "digit_ports": {}, "zero_writes": [], "write_rhs": {}, "table_index": []}
+            "digit_place": {}, "digit_ports": {}, "zero_writes": [], "write_rhs": {}, "table_index": [],
+            "cond_wants": {}}
     joined = "\n".join(code)
     m = re.search(r"#\s*define\s+_XTAL_FREQ\s+(\w+)", joined)
     if m:
@@ -474,9 +475,10 @@ def analyze(text, board=False):
     if max(cathode, anode) >= 5 or re.search(r"seg", body, re.I):
         info["seg7"] = "anode" if anode > cathode else "cathode"
     for name, value in aliases.items():
-        pm = re.fullmatch(r"[!~]?\s*\(?\s*PORT([A-E])bits\.R[A-E](\d)\s*\)?", expand(value, aliases))
+        pm = re.fullmatch(r"[!~]?\s*\(?\s*(?:PORT([A-E])bits\.R[A-E]|LAT([A-E])bits\.LAT[A-E])(\d)\s*\)?",
+                          expand(value, aliases))
         if pm:
-            info["names"].setdefault(f"R{pm.group(1)}{pm.group(2)}", name)
+            info["names"].setdefault(f"R{pm.group(1) or pm.group(2)}{pm.group(3)}", name)
     functions = set(re.findall(r"^\s*(?:static\s+)?(?:void|char|int|long|short|bit|__bit|unsigned\s+\w+|signed\s+\w+)"
                                r"\s+\**\s*([A-Za-z_]\w*)\s*\([^;]*$", joined, re.M)) - {"main"}
     # INT on RB0: enabled by INTE (INT0IE) = 1 or a whole INTCON with bit 4; the edge by INTEDG (INTEDG0) or bit 6
@@ -603,6 +605,7 @@ def analyze(text, board=False):
                     info["votes"].setdefault(pin, []).append(vote)
         for n, pins in decided.items():
             info["test_lines"].setdefault(no, set()).update(pins)
+            info["cond_wants"].setdefault(no, []).append(dict(wanted[n]))      # what makes the condition true
             # SW0 && SW1: something happens only while both are pressed
             cond = rhs[conds[n][0]:conds[n][1]]
             group = tuple(sorted(wanted[n].items()))
@@ -622,7 +625,8 @@ def analyze(text, board=False):
         def is_seg(e, r=reg):
             return e[1] == "port" and e[2] == r and e[5] is not None
         shaped = any(v & 0xFF not in (0, 0xFF) for v in consts)        # PORTD = 0 alone is no shape
-        if not kind and said and shaped and (writes_digits(info, is_seg) or (board and lone_digits(info, reg))):
+        drives = reg[-1] not in info["tris"] or info["tris"][reg[-1]] & 0x7F == 0     # all seven segments outputs
+        if not kind and said and shaped and drives and (writes_digits(info, is_seg) or (board and lone_digits(info, reg))):
             # the program says 7 segments and switches digits after these writes: single segments (0xDF, one
             # segment lit on an anode display) are shapes here too; more 1 bits than 0 bits means anode
             ones = sum(bin(v & 0x7F).count("1") for v in consts if v & 0xFF not in (0, 0xFF))
@@ -792,9 +796,22 @@ def pulse(info, first, last):
     return (pins.pop(), high, low) if len(pins) == 1 and high and low else None
 
 
-def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, writes=16, wait_ms=WAIT_MS, digits="auto"):
-    """The target part of picviewer.json (without id, device and source), and a few facts for the log."""
-    info = analyze(text, board=digits != "auto")
+def parse_seg7_board(spec):
+    """--seg7-board D:RB0,RB1,RB2,RB3[:anode|cathode] as {"port": "D", "digits": [...], "common": None or the kind}."""
+    parts = [p.strip() for p in str(spec).split(":")]
+    pins = [p.strip().upper() for p in parts[1].split(",") if p.strip()] if len(parts) >= 2 else []
+    common = parts[2].lower() if len(parts) == 3 else None
+    if (len(parts) not in (2, 3) or not re.fullmatch(r"[A-Ea-e]", parts[0]) or not pins
+            or not all(re.fullmatch(r"R[A-E][0-7]", p) for p in pins) or common not in (None, "anode", "cathode")):
+        raise ProjectError(f"--seg7-board の形が違う: {spec}（例 D:RB0,RB1,RB2,RB3、区画が 0 で点くなら D:RB0,RB1,RB2,RB3:anode）")
+    return {"port": parts[0].upper(), "digits": pins, "common": common}
+
+
+def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, writes=16, wait_ms=WAIT_MS, digits="auto",
+          seg7_board=None):
+    """The target part of picviewer.json (without id, device and source), and a few facts for the log.
+    seg7_board: the board's display as parse_seg7_board gives it (segment port, digit pins from the left)."""
+    info = analyze(text, board=digits != "auto" or seg7_board is not None)
     if info["main"] is None:
         raise ProjectError("main が見つからない")
     lines = sorted({ln for _, ln in table if ln > info["main"]})
@@ -816,6 +833,28 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
         out_reg = info["table_writes"].most_common(1)[0][0]
         out = out_reg[-1]
     mux = None
+    low_ports = {reg[-1] for reg, expr in info["digit_ports"].items() if "~" in expr}
+
+    def active(pin, pins):
+        """0 or 1: the value that lights the digit on the pin."""
+        if digits != "auto":
+            return 0 if digits == "low" else 1         # the board is known: --digits
+        votes = info["digit_on"].get(pin, [])
+        if votes:
+            return max(set(votes), key=votes.count)
+        if pin[1] in low_ports:
+            return 0
+        known = [v for p in pins for v in info["digit_on"].get(p, [])]
+        if known:                    # a digit the program keeps dark: lit the way the others are
+            return max(set(known), key=known.count)
+        once = info["bit_writes"].get(pin, set())
+        return next(iter(once)) if len(once) == 1 else 0      # always the same value: always lit
+
+    def written(port):
+        """The registers the program writes on a port, most written first (PORTC = 0 counts too)."""
+        regs = Counter({r: n for r, n in info["writes"].items() if r[-1] == port})
+        regs.update(r for _, r in info["zero_writes"] if r[-1] == port)
+        return [r for r, _ in regs.most_common()]
     if info["seg7"] and info["table_writes"]:
         # digits: the pins written between a segment write and the next wait, without buzzers and motor inputs
         named = {p for p in info["digit_pins"] if BUZZER_RE.fullmatch(info["names"].get(p, ""))
@@ -833,33 +872,28 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
             bits = [b for b in range(8) if (c_int(mask.group(1)) >> b) & 1] if mask else list(range(4))
             pins += [f"R{reg[-1]}{b}" for b in bits if f"R{reg[-1]}{b}" not in pins]
         if pins and (len(pins) > 1 or any(info["bit_writes"].get(p) == {0, 1} for p in pins)):
-            low_ports = {reg[-1] for reg, expr in info["digit_ports"].items() if "~" in expr}
-
-            known = [v for p in pins for v in info["digit_on"].get(p, [])]
-
-            def active(pin):
-                if digits != "auto":
-                    return 0 if digits == "low" else 1         # the board is known: --digits
-                votes = info["digit_on"].get(pin, [])
-                if votes:
-                    return max(set(votes), key=votes.count)
-                if pin[1] in low_ports:
-                    return 0
-                if known:                    # a digit the program keeps dark: lit the way the others are
-                    return max(set(known), key=known.count)
-                once = info["bit_writes"].get(pin, set())
-                return next(iter(once)) if len(once) == 1 else 0      # always the same value: always lit
             places = {p: max(set(v), key=v.count) for p, v in info["digit_place"].items() if p in pins}
             if len(places) == len(pins) and len(set(places.values())) == len(pins):
                 pins.sort(key=lambda p: -places[p])          # the highest place on the left
-            digits = [{"pin": pin, "active": "low" if active(pin) == 0 else "high"} for pin in pins]
             sel_regs = []
             for port in dict.fromkeys(p[1] for p in pins):
                 regs = [r for r in info["writes"] if r[-1] == port]
                 if regs:
                     sel_regs.append(max(regs, key=lambda r: info["writes"][r]))
-            mux = {"seg_reg": out_reg, "sel_regs": sel_regs, "digits": digits,
+            mux = {"seg_reg": out_reg, "sel_regs": sel_regs, "board": False,
+                   "digits": [{"pin": pin, "active": "low" if active(pin, pins) == 0 else "high"} for pin in pins],
                    "ordered": len(places) == len(pins) and len(set(places.values())) == len(pins)}
+    if seg7_board:
+        # the board's display is known (--seg7-board): drawn as wired whenever the program writes its segment port or
+        # a digit pin, even when it only sets them up (a program that leaves every digit lit or dark)
+        bport, bpins = seg7_board["port"], seg7_board["digits"]
+        if written(bport) or any(p in info["bit_writes"] for p in bpins) or mux:
+            seg_regs = written(bport)
+            out_reg, out = (seg_regs[0] if seg_regs else f"PORT{bport}"), bport
+            mux = {"seg_reg": out_reg, "board": True, "ordered": False,
+                   "sel_regs": [(written(port) or [f"PORT{port}"])[0] for port in dict.fromkeys(p[1] for p in bpins)],
+                   "digits": [{"pin": p, "active": "low" if active(p, bpins) == 0 else "high"} for p in bpins]}
+            info["seg7"] = seg7_board["common"] or info["seg7"] or "cathode"
 
     def input_on_out_port(pin):
         return out in info["tris"] and (info["tris"][out] >> int(pin[2])) & 1 == 1
@@ -887,6 +921,12 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
         return int(pressed) ^ int(s["active"] == "low")
 
     watch = [mux["seg_reg"], *mux["sel_regs"]] if mux else out_reg
+    # a buzzer next to a display (named BZ, BUZZER ...): drawn too, its port followed for the pitch
+    beside = [p for p in sorted(info["bit_targets"]) if p in device_pins and p not in digit_pins and p[1] != out
+              and BUZZER_RE.fullmatch(info["names"].get(p, ""))] if mux or (out and info["seg7"]) else []
+    if beside:
+        watch = list(dict.fromkeys(([watch] if isinstance(watch, str) else watch)
+                                   + [(written(p[1]) or [f"PORT{p[1]}"])[0] for p in beside]))
     watched = set(watch) if isinstance(watch, list) else {watch}
     loop = info["shape"]["loop"]
 
@@ -935,7 +975,7 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
     def count_on():
         for n, (var, head, last) in enumerate(counting):
             for _ in range(3 if n == 0 else 1):
-                plan.append({"run_to": last, "show": head})
+                plan.append({"run_to": last, "show": head, "may_miss": True})
                 plan.append({"until_write": watch, "count": 24, "wait_ms": wait_ms})
 
     if out and not switches:
@@ -944,7 +984,7 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
             count_on()
         elif len(sections) >= 2:
             for head, last, at in sections:
-                plan.append({"run_to": at, "show": head})
+                plan.append({"run_to": at, "show": head, "may_miss": True})
                 plan.append({"until_write": watch, "count": 24 if mux else 4, "wait_ms": wait_ms})
         else:
             count = writes
@@ -992,12 +1032,19 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
                     select.add(s["pin"])
         int_sw = by_pin.get("RB0")
 
-        def walked(s):
-            """(the if's line, [(head, last, first line inside)]) for loops one after another inside an if that
-            tests the switch, none of them testing a switch: they go on after a release (a melody)."""
-            for tested, at, loops in info["shape"]["if_loops"]:
-                if s["pin"] not in tested:
+        def walked(pressed):
+            """(the if's line, [(head, last, first line inside)]) for loops one after another inside an if whose
+            condition is switch tests alone and holds with the switches `pressed` (all of those it tests for &&, one
+            for ||), none of the loops testing a switch: they go on after a release (a melody)."""
+            for tested, at, loops, cond in info["shape"]["if_loops"]:
+                rest = re.sub(r"PORT[A-E]bits\.R[A-E]\d|[!=<>]=?|&&|\|\||[()~]|\b(?:0[xXbB][0-9a-fA-F]+|\d+)\b|\s", "", cond)
+                if rest or not tested or ("&&" in cond and "||" in cond):
+                    continue                  # variables in it, or both: a run_to inside might never arrive
+                if (tested != set(pressed)) if "||" not in cond else not tested & set(pressed):
                     continue
+                wants = next((w for w in info["cond_wants"].get(at, []) if set(w) == tested), None)
+                if wants is None or any(wants.get(p, level(by_pin[p], True)) != level(by_pin[p], True) for p in pressed):
+                    continue                  # pressing does not make it true (it waits for a release)
                 inside = [(h, e, next((ln for ln in lines if h < ln <= e), None)) for h, e in loops if (h, e) not in swapped]
                 inside = [x for x in inside if x[2] is not None and writes_in(x[0], x[1])]
                 looks = any(h <= no <= e for h, e, _ in inside for no in info["test_lines"])
@@ -1005,21 +1052,28 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
                     return at, inside
             return None
         each_loop = 24 if mux else 4
-        for s in switches:
-            walk = walked(s)
-            if walk:
-                at, inside = walk
-                plan.append({"set": {s["pin"]: level(s, True)}, "note": f"{s['label']} を押す"})
+
+        def walk_through(group, at, inside):
+            """Press, keep the switches pressed until the first loop runs (an if before it may take its turn first),
+            let go, then the start of each later loop and the quiet after the last."""
+            names = "と".join(s["label"] for s in group)
+            plan.append({"set": {s["pin"]: level(s, True) for s in group},
+                         "note": f"{names} を{'同時に' if len(group) > 1 else ''}押す"})
+            plan.append({"run_to": inside[0][2], "show": inside[0][0], "may_miss": True})
+            plan.append({"until_write": watch, "count": each_loop, "wait_ms": wait_ms})
+            plan.append({"set": {s["pin"]: level(s, False) for s in group},
+                         "note": f"{names} を離す（並んだループはスイッチを見ないので続く）"})
+            for head, last, first_in in inside[1:]:
+                plan.append({"run_to": first_in, "show": head, "may_miss": True})
                 plan.append({"until_write": watch, "count": each_loop, "wait_ms": wait_ms})
-                plan.append({"set": {s["pin"]: level(s, False)},
-                             "note": f"{s['label']} を離す（並んだループはスイッチを見ないので続く）"})
-                for head, last, first_in in inside[1:]:
-                    plan.append({"run_to": first_in, "show": head})
-                    plan.append({"until_write": watch, "count": each_loop, "wait_ms": wait_ms})
-                back = next((ln for ln in lines if at <= ln < inside[0][0]), None)
-                if back is not None:                  # back at the if after the last loop: nothing more happens
-                    plan.append({"run_to": back})
-                    plan.append({"until_write": watch, "count": 2, "wait_ms": wait_ms})
+            back = next((ln for ln in lines if at <= ln < inside[0][0]), None)
+            if back is not None:                  # back at the if after the last loop: nothing more happens
+                plan.append({"run_to": back, "may_miss": True})
+                plan.append({"until_write": watch, "count": 2, "wait_ms": wait_ms})
+        for s in switches:
+            walk = walked((s["pin"],))
+            if walk:
+                walk_through([s], *walk)
                 continue
             # the program counts the presses; a switch left as an output reads nothing, once is enough
             times = 3 if s["pin"] in info["counted"] and s not in stuck else 1
@@ -1058,6 +1112,10 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
             pins = [p for p in pins if p in by_pin]
             groups += [tuple(pins[:2])] + ([tuple(pins)] if len(pins) > 2 else []) if len(pins) >= 2 else []
         for group in dict.fromkeys(groups):
+            walk = walked(group)
+            if walk:
+                walk_through([by_pin[p] for p in group], *walk)
+                continue
             names = "と".join(by_pin[p]["label"] for p in group)
             press([by_pin[p] for p in group], f"{names} を同時に押す", f"{names} を離す")
     parse_plan(plan, "init")              # the same checks as a hand-written file
@@ -1086,6 +1144,8 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
                       **({"common": "anode"} if info["seg7"] == "anode" else {})})
     elif out and info["seg7"]:
         parts.append({"type": "seg7", "port": out, **({"common": "anode"} if info["seg7"] == "anode" else {})})
+    if mux or (out and info["seg7"]):
+        parts += [{"type": "buzzer", "pin": pin, "label": name_of(pin)} for pin in beside if roles_of.get(pin) == "buzzer"]
     else:
         for pin, role in roles_of.items():
             parts.append({"type": role, "pin": pin, "label": name_of(pin)})
@@ -1129,7 +1189,8 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
     if mux:
         roles.append(f"PORT{out} に {len(mux['digits'])} 桁の 7 セグメント LED（桁は左から "
                      + "、".join(d["pin"] for d in mux["digits"])
-                     + ("。左右は表の添字の位から" if mux["ordered"] else "。左右はピンの順と仮定") + "）")
+                     + ("。左右は基板の並び（--seg7-board）" if mux["board"]
+                        else "。左右は表の添字の位から" if mux["ordered"] else "。左右はピンの順と仮定") + "）")
     elif out and info["seg7"]:
         roles.append(f"PORT{out} に 7 セグメント LED")
     for pin, role in roles_of.items():
@@ -1145,6 +1206,16 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
         roles.append("スイッチ " + "、".join(
             f"{s['label']}（{s['pin']}、押すと {level(s, True)}）" for s in switches))
     notes = dict(info["notes"])
+    # a write whose 1 bits all sit on pins TRIS leaves as inputs drives nothing (PORTA = 1 with TRISA = 0x0F)
+    for no, kind, *rest in info["events"]:
+        if kind != "port" or not rest[3]:
+            continue
+        reg, value = rest[0], rest[3]
+        tris = info["tris"].get(reg[-1])
+        if tris is not None and value & 0xFF and value & ~tris & 0xFF == 0:
+            bits = "、".join(f"R{reg[-1]}{b}" for b in range(8) if (value >> b) & 1)
+            warn = f"{bits} は TRIS{reg[-1]} で入力のまま。{reg} に 1 を書いてもピンには出ない"
+            notes[str(no)] = f"{notes[str(no)]} / {warn}" if str(no) in notes and warn not in notes[str(no)] else warn
     for head, _, cond, dead in info["shape"]["swapped"]:
         warn = (f"for の 2 つ目（続ける条件）が {cond}、3 つ目が比べる式で、入れ替わっているように見える"
                 + ("。条件の値は最初 0（偽）なので、中身は 1 度も動かない" if dead else ""))
@@ -1187,7 +1258,8 @@ def device_names(picdef):
     return regs, pins
 
 
-def init_source(source, project_dir, device, tc, *, polarity="auto", bank=None, writes=16, force=False, digits="auto"):
+def init_source(source, project_dir, device, tc, *, polarity="auto", bank=None, writes=16, force=False, digits="auto",
+                seg7_board=None):
     """Compile once for the line table, then write <project_dir>/picviewer.json. Returns facts for the log."""
     source = Path(source).resolve()
     project_dir = Path(project_dir).resolve()
@@ -1214,7 +1286,8 @@ def init_source(source, project_dir, device, tc, *, polarity="auto", bank=None, 
             raise first from None
         xc8_args = probe.xc8_args
     table = read_line_table(elf.with_suffix(".cmf"), compiled_name(probe))
-    target, facts = guess("\n".join(read_source(source)), table, regs, pins, polarity, bank, writes, digits=digits)
+    target, facts = guess("\n".join(read_source(source)), table, regs, pins, polarity, bank, writes, digits=digits,
+                          seg7_board=seg7_board)
     try:
         rel = Path(os.path.relpath(source, project_dir)).as_posix()
     except ValueError:                   # another drive

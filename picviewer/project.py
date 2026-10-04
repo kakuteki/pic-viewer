@@ -116,6 +116,8 @@ def parse_plan(raw, where):
 
     {"run_to": L}                       run (or continue) to line L and stop; the first stop must be one
     {"run_to": L, "show": S}            same, and show line S as the line that ran
+    {"run_to": L, "may_miss": true}     a guess (init): if the wait runs out first, keep the stop as one that did
+                                        not arrive instead of failing
     {"step": N}                         step N source lines, stopping at each
     {"set": {"RB0": 1, "AN0": "2.5V"}}  drive input pins before the next stop (optional "note")
     {"until_write": "PORTC", "count": N}  continue and stop after each write to the register, N times;
@@ -135,15 +137,16 @@ def parse_plan(raw, where):
             if not started:
                 raise ProjectError(f'{where}: trace の最初の止め方は {{"run_to": 行番号}}（main の最初の行など）')
             plan.append({"step": a["step"]})
-        elif "run_to" in a and set(a) <= {"run_to", "show"} and _pos_int(a["run_to"]) \
-                and (a.get("show") is None or _pos_int(a["show"])):
+        elif "run_to" in a and set(a) <= {"run_to", "show", "may_miss"} and _pos_int(a["run_to"]) \
+                and (a.get("show") is None or _pos_int(a["show"])) and a.get("may_miss") in (None, True, False):
             if not started:
-                if "show" in a:
-                    raise ProjectError(f"{where}: 最初の run_to に show は付けない")
+                if "show" in a or "may_miss" in a:
+                    raise ProjectError(f"{where}: 最初の run_to に show と may_miss は付けない")
                 plan.append({"run_to": a["run_to"]})
                 started = True
             else:
-                plan.append({"run_to": a["run_to"], "show": a.get("show") or a["run_to"]})
+                plan.append({"run_to": a["run_to"], "show": a.get("show") or a["run_to"],
+                             **({"may_miss": True} if a.get("may_miss") else {})})
         elif "set" in a and set(a) <= {"set", "note"} and isinstance(a["set"], dict) and a["set"]:
             levels = {}
             for pin, value in a["set"].items():

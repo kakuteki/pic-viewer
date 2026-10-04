@@ -17,7 +17,7 @@ from picviewer.cli import main as cli_main
 from picviewer.compiler import (FAST_VAR, CompileError, compat_source, compiled_name, copy_includes, error_lines,
                                 fast_define, fast_source, skipped_per_ms)
 from picviewer.index import ERROR_FILE, find_projects, index_html, natural
-from picviewer.init import analyze, guess, init_source
+from picviewer.init import analyze, guess, init_source, parse_seg7_board
 from picviewer.linetab import line_at, read_line_table, writer_address
 from picviewer.mdb import (MdbError, _clean, absolute_cycles, key_stimulus, parse_records, plan_wait_seconds,
                            probe_errors, run_trace, skipped_stops, trace_chunks, trace_commands)
@@ -485,6 +485,10 @@ class ProjectTest(TempDirTest):
     def test_plan_show_defaults_to_line(self):
         plan = parse_plan([{"run_to": 5}, {"run_to": 9}], "t")
         self.assertEqual(plan[1], {"run_to": 9, "show": 9})
+        plan = parse_plan([{"run_to": 5}, {"run_to": 9, "show": 8, "may_miss": True}], "t")
+        self.assertEqual(plan[1], {"run_to": 9, "show": 8, "may_miss": True})
+        with self.assertRaises(ProjectError):
+            parse_plan([{"run_to": 5, "may_miss": True}], "t")         # the first stop must arrive
 
 
 class MdbTest(unittest.TestCase):
@@ -762,6 +766,19 @@ class BundleTest(unittest.TestCase):
         with self.assertRaises(MdbError):
             make_steps(plan, parse_records(TRACE_LOG, ["TRISB", "TMR2"]), self.REGS)
 
+    def test_run_to_that_may_miss(self):
+        log = ("Run\nRunning\nWait 20000\nSingle breakpoint: @0x7de\nSimulator halted\nPrint TRISB\nStop at\n"
+               "\taddress:0x7de\n\tsource line:13\nTRISB=\n255\nPrint TMR2\nTMR2=\n0\nStopwatch\n"
+               "Stopwatch cycle count = 10\n"
+               "Continue\nRunning\nWait 20000\nHalt\nSimulator halted\nPrint TRISB\nStop at\n\taddress:0x7f4\n"
+               "\tsource line:40\nTRISB=\n0\nPrint TMR2\nTMR2=\n0\nStopwatch\nStopwatch cycle count = 99\n")
+        records = parse_records(log, ["TRISB", "TMR2"])
+        self.assertEqual([r["timeout"] for r in records], [False, True])
+        steps = make_steps([{"run_to": 13}, {"run_to": 25, "show": 24, "may_miss": True}], records, self.REGS)
+        self.assertEqual((steps[1]["kind"], steps[1]["exec"], steps[1]["next"], steps[1]["missed"]), ("run", None, 40, 25))
+        with self.assertRaises(MdbError):                    # a run_to written by hand must arrive
+            make_steps([{"run_to": 13}, {"run_to": 25, "show": 24}], records, self.REGS)
+
     def test_expand_and_dump(self):
         self.assertEqual(len(expand_plan([{"run_to": 1}, {"step": 3}, {"run_to": 5, "show": 4}])), 5)
         b = {"schema": 1, "steps": [{"a": 1}, {"a": 2}], "source": ["x", "y"], "empty": []}
@@ -947,8 +964,10 @@ class InitTest(unittest.TestCase):
         target, facts = guess(text, table, DEVICE_REGS, DEVICE_PINS)
         # each loop of the steps: stop at its first line (showing its for line), then four writes
         self.assertEqual(target["trace"], [{"run_to": 6}, {"step": 3},
-                                           {"run_to": 11, "show": 10}, {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
-                                           {"run_to": 17, "show": 16}, {"until_write": "PORTC", "count": 4, "wait_ms": 3000}])
+                                           {"run_to": 11, "show": 10, "may_miss": True},
+                                           {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
+                                           {"run_to": 17, "show": 16, "may_miss": True},
+                                           {"until_write": "PORTC", "count": 4, "wait_ms": 3000}])
         self.assertEqual(facts["sections"], 2)
         self.assertEqual(target["circuit"], {"type": "leds", "port": "C", "bits": [0], "names": {"0": "LED0"}})
 
@@ -1064,6 +1083,14 @@ class InitTest(unittest.TestCase):
         # the last write before the wait lights the digit; the tens on the left; the buzzer is no digit
         self.assertEqual(part["digits"], [{"pin": "RA1", "active": "low"}, {"pin": "RA0", "active": "low"}])
         self.assertIn("表の添字の位", target["summary"])
+        text, table = self.program(body, before="const char seg[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66};\nunsigned char n;\n"
+                                                "#define BZ PORTAbits.RA5")
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS, seg7_board=parse_seg7_board("C:RA0,RA1"))
+        mux, buzzer = target["circuit"]
+        self.assertEqual([d["pin"] for d in mux["digits"]], ["RA0", "RA1"])   # the board wins
+        self.assertIn("基板の並び", target["summary"])
+        self.assertEqual(buzzer, {"type": "buzzer", "pin": "RA5", "label": "BZ"})     # drawn next to the display
+        self.assertIn("PORTA", [a for a in target["trace"] if "until_write" in a][0]["until_write"])
         three = ["while (1) {",
                  "    PORTC = seg[a]; PORTBbits.RB0 = 1; PORTBbits.RB1 = 1; PORTBbits.RB2 = 0; __delay_ms(1);",
                  "    PORTC = seg[b]; PORTBbits.RB0 = 1; PORTBbits.RB1 = 0; PORTBbits.RB2 = 1; __delay_ms(1);", "}"]
@@ -1224,6 +1251,35 @@ void main(void)
                          ("seg7mux", "D", ["RB0", "RB1", "RB2", "RB3"]))
         self.assertEqual(switch["switches"][0]["pin"], "RA6")
 
+    def test_board_wiring_given(self):
+        regs = DEVICE_REGS | {"LATA", "LATB", "LATD", "TRISD", "PORTD"}
+        pins = DEVICE_PINS | {f"RD{b}" for b in range(8)}
+        board = parse_seg7_board("D:RB0,RB1,RB2,RB3:anode")
+        self.assertEqual(board, {"port": "D", "digits": ["RB0", "RB1", "RB2", "RB3"], "common": "anode"})
+        for bad in ("RB0,RB1", "D:", "D:RB0:dim", "Z:RB0"):
+            with self.assertRaises(ProjectError):
+                parse_seg7_board(bad)
+        # the setup switches every digit off and the loop does nothing: a dark display, not four LEDs on PORTB
+        idle = ["TRISB = 0;", "TRISD = 0;", "PORTD = 0;", *[f"LATBbits.LATB{b} = 1;" for b in range(4)], "while (1) {", "}"]
+        text, table = self.program(idle)
+        target, _ = guess(text, table, regs, pins, digits="low", seg7_board=board)
+        self.assertEqual(target["circuit"], {"type": "seg7mux", "port": "D", "common": "anode",
+                                             "digits": [{"pin": f"RB{b}", "active": "low"} for b in range(4)]})
+        self.assertIn("基板の並び", target["summary"])
+        # a pulse written to a port whose pins TRIS leaves as inputs is no segment and drives nothing
+        pulse = ["TRISA = 0x0F;", "TRISB = 0;", "TRISD = 0;", "PORTD = 0;", *[f"LATBbits.LATB{b} = 0;" for b in range(4)],
+                 "while (1) {", "    PORTA = 1;", "    __delay_us(145);", "    PORTA = 0;", "    __delay_us(1855);", "}"]
+        text, table = self.program(pulse)
+        target, _ = guess(text, table, regs, pins, digits="low")
+        self.assertNotEqual(target["circuit"]["port"] if isinstance(target["circuit"], dict) else "", "A")
+        at = str(text.split("\n").index("        PORTA = 1;") + 1)
+        self.assertIn("入力のまま", target["notes"][at])
+        target, _ = guess(text, table, regs, pins, digits="low", seg7_board=board)
+        self.assertEqual((target["circuit"]["type"], target["circuit"]["port"]), ("seg7mux", "D"))   # the board's display
+        # a LAT alias names the pin: the buzzer is no digit
+        info = analyze("#define BZ LATAbits.LATA5\nvoid main(void)\n{\n    while (1) { BZ = 1; BZ = 0; }\n}\n")
+        self.assertEqual(info["names"].get("RA5"), "BZ")
+
     def test_loops_one_after_another_on_a_display_and_after_a_press(self):
         shapes = "const char seg[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66};"
         phase = ["    for (int i = 0; i < 100; i++) {",
@@ -1237,7 +1293,7 @@ void main(void)
         lines = text.split("\n")
         heads = [n for n, ln in enumerate(lines, 1) if ln.strip().startswith("for (")]
         self.assertEqual(target["trace"][2:], [x for h in heads for x in (
-            {"run_to": h + 1, "show": h}, {"until_write": ["PORTC", "PORTA"], "count": 24, "wait_ms": 3000})])
+            {"run_to": h + 1, "show": h, "may_miss": True}, {"until_write": ["PORTC", "PORTA"], "count": 24, "wait_ms": 3000})])
         # a melody inside the if that tests the switch: press, let go, then the start of each later note
         note = ["    for (int i = 0; i < 10; i++) {", "        BZ = 1; __delay_us({d}); BZ = 0; __delay_us({d});", "    }"]
         body = ["while (1)", "if (SW0 == 1) {", *[ln.replace("{d}", d) for d in ("500", "400", "300") for ln in note], "}"]
@@ -1249,11 +1305,27 @@ void main(void)
         trace = target["trace"]
         start = trace.index({"set": {"RA0": 0}, "note": "SW0 を押す"})
         self.assertEqual(trace[start + 1:], [
+            {"run_to": heads[0] + 1, "show": heads[0], "may_miss": True},      # held until the first note starts
             {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
             {"set": {"RA0": 1}, "note": "SW0 を離す（並んだループはスイッチを見ないので続く）"},
-            {"run_to": heads[1] + 1, "show": heads[1]}, {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
-            {"run_to": heads[2] + 1, "show": heads[2]}, {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
-            {"run_to": at_if}, {"until_write": "PORTC", "count": 2, "wait_ms": 3000}])
+            {"run_to": heads[1] + 1, "show": heads[1], "may_miss": True}, {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
+            {"run_to": heads[2] + 1, "show": heads[2], "may_miss": True}, {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
+            {"run_to": at_if, "may_miss": True}, {"until_write": "PORTC", "count": 2, "wait_ms": 3000}])
+        # an if that wants two switches pressed together: walked when both are pressed, not with one alone
+        body = ["while (1) {", "if (SW0 == 1 && SW1 == 1) {",
+                *[ln.replace("{d}", d) for d in ("500", "400") for ln in note], "}", "}"]
+        text, table = self.program(body, before="#define BZ PORTCbits.RC0\n#define SW0 !PORTAbits.RA0\n"
+                                                "#define SW1 !PORTAbits.RA1")
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        notes = [a["note"] for a in target["trace"] if "set" in a]
+        self.assertEqual(notes[1:], ["SW0 を押す", "SW0 を離す", "SW1 を押す", "SW1 を離す", "SW0とSW1 を同時に押す",
+                                     "SW0とSW1 を離す（並んだループはスイッチを見ないので続く）"])
+        # a condition on a variable too: a run_to into it might never arrive, so no walk
+        body = ["while (1) {", "if (SW0 == 1 && mode == 2) {",
+                *[ln.replace("{d}", d) for d in ("500", "400") for ln in note], "}", "}"]
+        text, table = self.program(body, before="#define BZ PORTCbits.RC0\n#define SW0 !PORTAbits.RA0\nchar mode;")
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        self.assertEqual(sum(1 for a in target["trace"] if "run_to" in a), 1)
 
     def test_swapped_for_is_noted_and_not_walked(self):
         body = ["while (1) {", "    for (int i = 0; i++; i < 500) {", "        PORTC = 1; __delay_ms(1);", "    }",
@@ -1476,6 +1548,8 @@ class CliTest(unittest.TestCase):
         self.assertEqual((a.project, a.keep_going, a.no_probe), (["c/a", "c/b"], True, True))
         a = build_parser().parse_args(["init", "PIC1", "--switches", "low", "--switch-bank", "RA0,RA1", "-o", "out"])
         self.assertEqual((a.sources, a.switches, a.switch_bank, a.out, a.device), (["PIC1"], "low", "RA0,RA1", "out", "PIC16F886"))
+        a = build_parser().parse_args(["init", "PIC3", "--seg7-board", "C:RA0,RA1,RA2,RA3"])
+        self.assertEqual(a.seg7_board, "C:RA0,RA1,RA2,RA3")
 
     def test_build_keep_going(self):
         with tempfile.TemporaryDirectory() as tmp:

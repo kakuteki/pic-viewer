@@ -50,7 +50,8 @@
         },
         {
           "run_to": 48,
-          "show": 37
+          "show": 37,
+          "may_miss": true
         },
         {
           "until_write": [
@@ -62,7 +63,8 @@
         },
         {
           "run_to": 48,
-          "show": 37
+          "show": 37,
+          "may_miss": true
         },
         {
           "until_write": [
@@ -74,7 +76,8 @@
         },
         {
           "run_to": 48,
-          "show": 37
+          "show": 37,
+          "may_miss": true
         },
         {
           "until_write": [
@@ -86,7 +89,8 @@
         },
         {
           "run_to": 49,
-          "show": 36
+          "show": 36,
+          "may_miss": true
         },
         {
           "until_write": [

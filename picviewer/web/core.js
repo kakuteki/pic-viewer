@@ -83,7 +83,7 @@
     NAMES: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'],
     SHAPES: { 0x3f: '0', 0x06: '1', 0x5b: '2', 0x4f: '3', 0x66: '4', 0x6d: '5', 0x7d: '6', 0x07: '7', 0x27: '7',
       0x7f: '8', 0x6f: '9', 0x67: '9', 0x77: 'A', 0x7c: 'b', 0x39: 'C', 0x58: 'c', 0x5e: 'd', 0x79: 'E', 0x71: 'F',
-      0x76: 'H', 0x38: 'L', 0x54: 'n', 0x08: '_', 0x40: '-', 0x73: 'P', 0x3e: 'U', 0x00: '（消灯）' },
+      0x76: 'H', 0x38: 'L', 0x54: 'n', 0x5c: 'o', 0x08: '_', 0x40: '-', 0x73: 'P', 0x3e: 'U', 0x00: '（消灯）' },
     paths(x, y, w, h, t) {
       const hs = (yy) => `M${x + t * 0.67} ${yy} L${x + t * 1.22} ${yy - t / 2} H${x + w - t * 1.22} L${x + w - t * 0.67} ${yy} L${x + w - t * 1.22} ${yy + t / 2} H${x + t * 1.22} Z`;
       const vs = (xx, y0, y1) => `M${xx} ${y0 + t * 0.67} L${xx + t / 2} ${y0 + t * 1.22} V${y1 - t * 1.22} L${xx} ${y1 - t * 0.67} L${xx - t / 2} ${y1 - t * 1.22} V${y0 + t * 1.22} Z`;
@@ -356,6 +356,13 @@
         + (st.next ? `止めたときは ${st.next} 行目のあたりを実行していた。`
           : st.where ? `止めたときは ${st.where}（XC8 に付いてくる関数。割り算などで呼ばれる）の中を実行していた。` : '')
         + '入力が変わるのを待っているか、書き込みの無い所を回っている。待った長さは止め方で決まる（実機ならスイッチを押すまでの時間）。';
+    } else if (st.kind === 'run' && st.missed) {
+      // a run_to init guessed that did not arrive within the wait
+      $('exNo').textContent = '';
+      $('exCode').textContent = `${st.missed} 行目に着かなかった`;
+      $('exNote').textContent = inputs + `${st.missed} 行目まで走らせたが、待ち時間の間に着かなかったので止めた`
+        + (st.next ? `（止めたときは ${st.next} 行目のあたり）` : '')
+        + '。そこへ行く条件が成り立っていないか、その前の処理が長い。この計画は init の推測。';
     } else if (st.exec === null && st.kind !== 'start') {
       // written by code without a line of ours: XC8's own routines (where), or code the compiler added
       $('exNo').textContent = '';

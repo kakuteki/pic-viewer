@@ -77,6 +77,9 @@ def build_parser():
     i.add_argument("--digits", choices=["auto", "low", "high"], default="auto",
                    help="7 セグの桁を点ける値。auto はプログラムから決める（1 つだけ違う値を書くピンが点けた桁）。"
                         "同じ基板のプログラムをまとめて作るときに low か high でそろえる")
+    i.add_argument("--seg7-board", help="基板の 7 セグの配線: 区画のポートと、左からの桁のピン（例 D:RB0,RB1,RB2,RB3）。"
+                                         "区画が 0 で点くなら :anode を足す。プログラムが区画のポートか桁のピンに書けば、"
+                                         "この配線で描く")
     i.add_argument("--switch-bank", help="ポートをまとめて読むとき（PORTC = PORTA など）のスイッチのピン（例 RA0,RA1,RA2,RA3）")
     i.add_argument("--writes", type=int, default=16, help="LED のポートへの書き込みを何回追うか（既定 16）")
     i.add_argument("--force", action="store_true", help="picviewer.json があっても作り直す")
@@ -261,17 +264,18 @@ def record_failure(src, project_dir, device, error, force=False):
 
 
 def cmd_init(args):
-    from .init import init_source
+    from .init import init_source, parse_seg7_board
     sources = _sources(args.sources)
     base = Path(os.path.commonpath([str(s.parent) for s in sources]))
     bank = [s.strip().upper() for s in args.switch_bank.split(",") if s.strip()] if args.switch_bank else None
+    board = parse_seg7_board(args.seg7_board) if args.seg7_board else None
     tc = _toolchain(args)
     failed = 0
     for src in sources:
         project_dir = Path(args.out) / src.parent.relative_to(base) / src.stem
         try:
             f = init_source(src, project_dir, args.device, tc, polarity=args.switches, bank=bank,
-                            writes=args.writes, force=args.force, digits=args.digits)
+                            writes=args.writes, force=args.force, digits=args.digits, seg7_board=board)
         except Exception as e:                 # noqa: BLE001 -- in a batch every failure is recorded and shown
             if not args.keep_going:
                 raise

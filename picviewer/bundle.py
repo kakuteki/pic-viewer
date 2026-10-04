@@ -44,7 +44,8 @@ def expand_plan(plan):
             new = [{"kind": "step", "want": None, "show": None}] * a["step"]
         elif "run_to" in a:
             new = [{"kind": "run" if started else "start", "want": a["run_to"],
-                    "show": a.get("show", a["run_to"]) if started else None}]
+                    "show": a.get("show", a["run_to"]) if started else None,
+                    **({"may_miss": True} if a.get("may_miss") else {})}]
             started = True
         else:
             segment += 1
@@ -96,11 +97,13 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
         if e["kind"] == "write" and (e["segment"] in ended or (timeout and last_kind.get(e["segment"]) == "timeout")):
             carry.update({k: e[k] for k in ("inputs", "input_note", "key") if k in e})   # dropped stop: keep its inputs
             continue
-        if timeout and e["kind"] != "write":
+        # a run_to init guessed that did not arrive in time: kept, the page says so
+        missed = timeout and e["kind"] == "run" and e.get("may_miss", False)
+        if timeout and e["kind"] != "write" and not missed:
             where = f"{rec['line']} 行目のあたり" if rec["line"] else "行番号の無い所"
             raise MdbError(f"{i + 1} 回目は {e['want']} 行目で止まるはずが、着かないまま待ち時間が過ぎた"
                            f"（止めた所は {where}）。入力（set）か wait_ms を見直す")
-        if e["want"] is not None and rec["line"] != e["want"]:
+        if e["want"] is not None and rec["line"] != e["want"] and not missed:
             raise MdbError(f"{i + 1} 回目は {e['want']} 行目で止まるはずが {rec['line']} 行目で止まった")
         if next_line is None and e["kind"] == "step" and not rec.get("where"):
             raise MdbError(f"{i + 1} 回目の停止で行番号が読めない（行番号の無いところで止まった）")
@@ -110,7 +113,7 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
         elif kind == "step":
             executed = before
         elif kind == "run":
-            executed = e["show"]
+            executed = None if missed else e["show"]
         elif timeout:
             kind, executed = "timeout", None       # nothing was written while we waited
         elif e.get("until") and rec["line"] == e["until"]:
@@ -127,6 +130,8 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
                 "v": [rec["values"][r["name"]] & r["mask"] for r in registers]}
         if rec.get("where"):
             step["where"] = rec["where"]
+        if missed:
+            step["missed"] = e["want"]
         if e["kind"] == "write":
             watched = e["watch"]
 
