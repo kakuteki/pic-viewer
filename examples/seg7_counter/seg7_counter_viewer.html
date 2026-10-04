@@ -166,6 +166,9 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 /* keypad and potentiometer */
 #cir.keypad { max-width: 470px; min-width: 300px; }
 #cir.narrow { max-width: 230px; min-width: 0; }
+#cir.buzzer { max-width: 300px; min-width: 0; }
+#cir.servo { max-width: 340px; min-width: 0; }
+#cir.dcmotor { max-width: 440px; min-width: 300px; }
 #cir .wire path.hot { stroke: var(--recirc); stroke-width: 3.5; }
 #cir .key rect { fill: var(--panel); stroke: var(--fg); stroke-width: 1.5; }
 #cir .key text { font-family: var(--mono); font-weight: 700; }
@@ -218,6 +221,7 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 .status div { background: var(--inset); border-radius: 8px; padding: 6px 9px; min-width: 0; }
 .status dt { font-size: 11px; color: var(--dim); }
 .status dd { margin: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+.status dd.mono { white-space: pre; font-family: ui-monospace, Consolas, monospace; }
 .status .on { background: var(--accent-soft); }
 .status .on dd { color: var(--accent-ink); }
 .status .re { background: var(--recirc-soft); }
@@ -346,7 +350,7 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
   <footer class="foot"><ul id="foot"></ul></footer>
 </div>
 
-<script type="application/json" id="data">{"title":"スイッチで進む 7 セグメント LED（counter.c、計画は picviewer init が作ったまま）","tool":"picviewer 0.5.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"PORTC に 7 セグメント LED、スイッチ SW（RB0、押すと 0）（init がソースから読み取った割り当て）","fosc_hz":4000000,"source_name":"counter.c","source":["// counter.c  スイッチを押している間、7 セグメント LED の数字を 0.5 秒ごとに 0 から 9 まで進める","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RB0 = スイッチ（押すと 0。プルアップ抵抗つきで、押すと GND につながる）","//       RC0-RC6 = 7 セグメント LED の a-g（カソード共通、1 で点灯）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","#define SW !PORTBbits.RB0           // 押すと 0 になるので ! で裏返す","","const unsigned char SHAPE[10] = {   // 0-9 の形（ビット 0 が a、ビット 6 が g）","    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F","};","","void main(void)","{","    unsigned char n = 0;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;        // RB0 をデジタル入力に","    TRISB  = 0b00000001;        // RB0 はスイッチの入力","    TRISC  = 0b00000000;        // PORTC は全部 7 セグメント LED の出力","    PORTC  = SHAPE[n];          // 0 を出す","","    while (1) {","        while (!SW) {           // 押されるまで待つ","        }","        __delay_ms(500);","        n = (n == 9) ? 0 : n + 1;","        PORTC = SHAPE[n];       // 次の数字を出す","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":20,"addr":"0x7a8","cycles":13,"v":[96,31,63,255,255,1,0],"inputs":{"RB0":"high"},"input_note":"スイッチは全部離してある","skipped_us":0},{"kind":"step","exec":20,"next":22,"addr":"0x7a9","cycles":14,"v":[96,31,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":22,"next":23,"addr":"0x7ad","cycles":18,"v":[96,31,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":23,"next":24,"addr":"0x7b0","cycles":21,"v":[96,0,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":24,"next":25,"addr":"0x7b1","cycles":22,"v":[96,0,0,255,255,1,0],"skipped_us":0},{"kind":"step","exec":25,"next":26,"addr":"0x7b5","cycles":26,"v":[96,0,0,1,255,1,0],"skipped_us":0},{"kind":"step","exec":26,"next":27,"addr":"0x7b6","cycles":27,"v":[96,0,0,1,0,1,0],"skipped_us":0},{"kind":"step","exec":27,"next":31,"addr":"0x7c0","cycles":46,"v":[96,0,0,1,0,1,63],"skipped_us":0},{"kind":"timeout","exec":null,"next":31,"addr":"0x7c1","cycles":5828957,"v":[96,0,0,1,0,1,63],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41368676,"v":[96,0,0,1,0,0,6],"watch":"PORTC","inputs":{"RB0":"low"},"input_note":"SW を押す","skipped_us":499500},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41369233,"v":[96,0,0,1,0,0,91],"watch":"PORTC","skipped_us":999000},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41369790,"v":[96,0,0,1,0,0,79],"watch":"PORTC","skipped_us":1498500},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41370347,"v":[96,0,0,1,0,0,102],"watch":"PORTC","skipped_us":1998000},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41370904,"v":[96,0,0,1,0,0,109],"watch":"PORTC","skipped_us":2497500},{"kind":"timeout","exec":null,"next":31,"addr":"0x7c1","cycles":47626102,"v":[96,0,0,1,0,1,109],"watch":"PORTC","inputs":{"RB0":"high"},"input_note":"SW を離す","skipped_us":2497500}],"waves":[],"notes":{"22":"内部発振器を 4 MHz に","23":"アナログ入力を使わない","24":"RB0 をデジタル入力に","25":"RB0 はスイッチの入力","26":"PORTC は全部 7 セグメント LED の出力","27":"0 を出す","30":"押されるまで待つ","34":"次の数字を出す"},"circuit":{"type":"seg7","port":"C","switches":[{"pin":"RB0","active":"low","label":"SW"}]},"counters":[]}]}</script>
+<script type="application/json" id="data">{"title":"スイッチで進む 7 セグメント LED（counter.c、計画は picviewer init が作ったまま）","tool":"picviewer 0.6.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"PORTC に 7 セグメント LED、スイッチ SW（RB0、押すと 0）（init がソースから読み取った割り当て）","fosc_hz":4000000,"source_name":"counter.c","source":["// counter.c  スイッチを押している間、7 セグメント LED の数字を 0.5 秒ごとに 0 から 9 まで進める","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RB0 = スイッチ（押すと 0。プルアップ抵抗つきで、押すと GND につながる）","//       RC0-RC6 = 7 セグメント LED の a-g（カソード共通、1 で点灯）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","#define SW !PORTBbits.RB0           // 押すと 0 になるので ! で裏返す","","const unsigned char SHAPE[10] = {   // 0-9 の形（ビット 0 が a、ビット 6 が g）","    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F","};","","void main(void)","{","    unsigned char n = 0;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;        // RB0 をデジタル入力に","    TRISB  = 0b00000001;        // RB0 はスイッチの入力","    TRISC  = 0b00000000;        // PORTC は全部 7 セグメント LED の出力","    PORTC  = SHAPE[n];          // 0 を出す","","    while (1) {","        while (!SW) {           // 押されるまで待つ","        }","        __delay_ms(500);","        n = (n == 9) ? 0 : n + 1;","        PORTC = SHAPE[n];       // 次の数字を出す","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":20,"addr":"0x7a8","cycles":13,"v":[96,31,63,255,255,1,0],"inputs":{"RB0":"high"},"input_note":"スイッチは全部離してある","skipped_us":0},{"kind":"step","exec":20,"next":22,"addr":"0x7a9","cycles":14,"v":[96,31,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":22,"next":23,"addr":"0x7ad","cycles":18,"v":[96,31,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":23,"next":24,"addr":"0x7b0","cycles":21,"v":[96,0,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":24,"next":25,"addr":"0x7b1","cycles":22,"v":[96,0,0,255,255,1,0],"skipped_us":0},{"kind":"step","exec":25,"next":26,"addr":"0x7b5","cycles":26,"v":[96,0,0,1,255,1,0],"skipped_us":0},{"kind":"step","exec":26,"next":27,"addr":"0x7b6","cycles":27,"v":[96,0,0,1,0,1,0],"skipped_us":0},{"kind":"step","exec":27,"next":31,"addr":"0x7c0","cycles":46,"v":[96,0,0,1,0,1,63],"skipped_us":0},{"kind":"timeout","exec":null,"next":31,"addr":"0x7c1","cycles":20099732,"v":[96,0,0,1,0,1,63],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":30019441,"v":[96,0,0,1,0,0,6],"watch":"PORTC","inputs":{"RB0":"low"},"input_note":"SW を押す","skipped_us":499500},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":30019998,"v":[96,0,0,1,0,0,91],"watch":"PORTC","skipped_us":999000},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":30020555,"v":[96,0,0,1,0,0,79],"watch":"PORTC","skipped_us":1498500},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":30021112,"v":[96,0,0,1,0,0,102],"watch":"PORTC","skipped_us":1998000},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":30021669,"v":[96,0,0,1,0,0,109],"watch":"PORTC","skipped_us":2497500},{"kind":"timeout","exec":null,"next":31,"addr":"0x7c1","cycles":52170197,"v":[96,0,0,1,0,1,109],"watch":"PORTC","inputs":{"RB0":"high"},"input_note":"SW を離す","skipped_us":2497500}],"waves":[],"notes":{"22":"内部発振器を 4 MHz に","23":"アナログ入力を使わない","24":"RB0 をデジタル入力に","25":"RB0 はスイッチの入力","26":"PORTC は全部 7 セグメント LED の出力","27":"0 を出す","30":"押されるまで待つ","34":"次の数字を出す"},"circuit":{"type":"seg7","port":"C","switches":[{"pin":"RB0","active":"low","label":"SW"}]},"counters":[]}]}</script>
 <script>
 window.PicViewer = { circuits: {}, util: {} };
 /* seg7: a one-digit 7-segment LED on a port. By default bit 0 is segment a ... bit 6 is g, bit 7 is dp,
@@ -596,6 +600,59 @@ window.PicViewer = { circuits: {}, util: {} };
         e: vs(x, y + h / 2, y + h), c: vs(x + w, y + h / 2, y + h) };
     },
   };
+  // What the recording knows between two stops. The values read at a stop hold until the next one only when the
+  // program could not change the circuit unseen in between: up to a write stop (every write to the watched
+  // registers stops it), a timeout (no write came) or a step. Up to a run_to stop the program ran freely, and
+  // after the end of an until_write the writes were no longer followed: those stretches are unknown.
+  const knownAfter = (t, i) => {
+    const next = t.steps[i + 1];
+    return Boolean(next) && next.kind !== 'run' && next.kind !== 'start' && t.steps[i].kind !== 'end';
+  };
+  // the recorded stretches before step k, newest first, as far back as `span` (seconds, or instruction cycles
+  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut}
+  function history(t, k, span) {
+    const timeOf = (i) => { const s = secondsOf(t, t.steps[i]); return s === null ? t.steps[i].cycles : s; };
+    const end = timeOf(k);
+    const spans = [];
+    let cut = false;
+    for (let i = k - 1; i >= 0; i--) {
+      const b = timeOf(i + 1);
+      if (end - b >= span) break;
+      if (!knownAfter(t, i)) { cut = true; break; }
+      const a = Math.max(timeOf(i), end - span);
+      if (b > a) spans.push({ from: a, to: b, R: regsAt(t, t.steps[i]), i });
+      if (end - timeOf(i) >= span) break;
+    }
+    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end };
+  }
+  // a pin's last full cycle before step k, from its level at each stop (level(R) gives 0 or 1): the time from the
+  // second last rising edge to the last, and how long it was 1 in it. null when it did not go round twice within
+  // `span` of recorded time. `since` is how long ago its level last changed.
+  function pulse(t, k, level, span) {
+    const h = history(t, k, span);
+    // inputs changed by the plan (set, press) change what the program does; in the simulation they come only
+    // a few writes apart, so a cycle must not reach back across one: start from the last change
+    let since = 0;
+    for (let i = k; i > 0; i--) if (t.steps[i].inputs || t.steps[i].key !== undefined) { since = i - 1; break; }
+    const cutAtInput = h.spans.length > 0 && h.spans[h.spans.length - 1].i < since;
+    h.spans = h.spans.filter((s) => s.i >= since);
+    h.cut = h.cut || cutAtInput;
+    const now = level(regsAt(t, t.steps[k]));
+    const seq = [{ at: h.end, v: now }, ...h.spans.map((s) => ({ at: s.from, v: level(s.R) }))];
+    // seq: the level from each moment on, newest first; an edge where the level differs from the one before it
+    const edges = [];
+    for (let j = 0; j + 1 < seq.length; j++) {
+      if (seq[j].v !== seq[j + 1].v) edges.push({ at: h.spans[j].to, rising: seq[j].v === 1 });
+    }
+    const ago = edges.length ? h.end - edges[0].at : null;
+    const rises = edges.filter((e) => e.rising);
+    if (rises.length < 2) return { period: null, high: null, duty: null, since: ago, level: now, cut: h.cut };
+    const [r1, r2] = rises;
+    const fall = edges.find((e) => !e.rising && e.at > r2.at && e.at <= r1.at);
+    const period = r1.at - r2.at;
+    const high = fall ? fall.at - r2.at : null;
+    return { period, high, duty: high === null || period <= 0 ? null : high / period, since: ago, level: now, cut: h.cut };
+  }
   PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath, seg7 };
 
   // ---------------- data helpers
@@ -815,7 +872,7 @@ window.PicViewer = { circuits: {}, util: {} };
       let note;
       if (st.kind === 'end') note = t.notes[String(st.exec)] || `${st.exec} 行目に来たので、${st.watch} への書き込みを追うのを終える。`;
       else if (repeat) note = '同じ行をもう一度実行した（ループの中）。レジスタは変わらない。';
-      else note = t.notes[String(st.exec)] || auto;
+      else note = t.notes[String(st.exec)] ? `${t.notes[String(st.exec)]}${bits.length ? `（${auto}）` : ''}` : auto;
       if (st.kind === 'write') note = `${st.watch} に書いた所で止めた。` + note;
       $('exNote').textContent = inputs + note;
     }
@@ -870,7 +927,7 @@ window.PicViewer = { circuits: {}, util: {} };
   function paintStatus(list) {
     $('cirStatus').replaceChildren(...list.map((s) => {
       const d = el('div', s.tone || '');
-      d.append(el('dt', '', s.label), el('dd', '', s.value));
+      d.append(el('dt', '', s.label), el('dd', s.mono ? 'mono' : '', s.value));   // mono keeps blank digits in place
       return d;
     }));
   }
@@ -1090,7 +1147,10 @@ window.PicViewer = { circuits: {}, util: {} };
       inputs: inputsAt(t, S.step), key: keyAt(t, S.step), regsAt: (step) => regsAt(t, step), fmtTime,
       instrHz: instrHz(t), seconds: secondsOf(t, st),
       // seconds since reset of any step (instruction cycles when the clock is not known)
-      timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; } };
+      timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; },
+      // the recorded stretches before this step, and a pin's last full cycle (see history and pulse above)
+      history: (span) => history(t, S.step, span),
+      pulse: (level, span) => pulse(t, S.step, level, span) };
     const boxes = $('cirBox').children;
     const results = partsOf(t).map((cfg, i) => pluginOf(cfg).update({ ...base, cfg, box: boxes[i] }) || {});
     paintStatus(results.flatMap((r) => r.status || []));

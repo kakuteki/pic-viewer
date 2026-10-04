@@ -239,8 +239,14 @@ def stopwatch():
     open_page("examples/stopwatch/stopwatch_viewer.html")
     goto(runs[0] - 1)
     check("stopwatch: shows 0 and waits while stopped", kind="timeout", digit="0", pressed=False)
-    expect("stopwatch: the wait stopped inside XC8's division routine, not on a line of ours",
-           "awdiv.c" in text_of("exNote"), text_of("exNote"))
+    # where a cut-short wait halts depends on timing: inside XC8's division routine, or on a line of ours
+    st = steps[runs[0] - 1]
+    if st.get("where"):
+        expect("stopwatch: the wait stopped in XC8's routine, named by its file, not as a line of ours",
+               st["where"] in text_of("exNote") and "行目" not in text_of("exNote"), text_of("exNote"))
+    else:
+        expect("stopwatch: the wait stopped on a line of ours, named in the text",
+               f"{st['next']} 行目のあたり" in text_of("exNote"), text_of("exNote"))
     goto(runs[0])
     check("stopwatch: pressed, waits for the release", kind="run", exec=55, pressed=True)
     goto(runs[0] + 3)
@@ -257,12 +263,64 @@ def seg7_mux():
     check("mux: early on only the first digit has been lit", shown="1   ")
     goto(runs[0] - 1)
     check("mux: after a few frames the eye sees 1234", shown="1234")
-    expect("mux: the explanation says one digit at a time", "直前 20 ms の平均" in text_of("cirText"), text_of("cirText"))
+    expect("mux: the explanation says the eye sees an average", "平均" in text_of("cirText"), text_of("cirText"))
+    goto(runs[0])
+    check("mux: after run_to the writes were not followed, so only this moment is drawn", covered=0)
+    expect("mux: and the page says so", "走らせた" in text_of("cirText"), text_of("cirText"))
     k = next(i for i in range(runs[0] - 1, 0, -1) if steps[i].get("watch") == "PORTA" and steps[i]["v"][5] != 0x0F)
     goto(k)
     check("mux: at a digit switch-on, exactly one digit is on", now=[[0x0E, 0x0D, 0x0B, 0x07].index(steps[k]["v"][5])])
     ab("click", "#bLast")
     check("mux: half a second later the count is 1235", shown="1235")
+
+
+def buzzer():
+    steps = steps_of("buzzer")
+    open_page("examples/buzzer/buzzer_viewer.html")
+    # the second rising edge of each note is the first stop that holds a full cycle
+    notes = []
+    for k, st in enumerate(steps):
+        if st["kind"] == "write" and k + 1 < len(steps) and steps[k + 1]["kind"] != "write":
+            notes.append(k)
+    notes.append(len(steps) - 1)
+    for k, letter in zip(notes, ("C4", "D4", "E4")):
+        goto(k)
+        check(f"buzzer: step {k} sounds {letter}", note=letter)
+    runs = [i for i, st in enumerate(steps) if st["kind"] == "run"]
+    goto(runs[1])
+    check("buzzer: right after run_to the pitch is not known", hz=None)
+    expect("buzzer: the text says the recording is too short", "分からない" in text_of("cirText"), text_of("cirText"))
+
+
+def servo():
+    steps = steps_of("servo")
+    open_page("examples/servo/servo_viewer.html")
+    ends = [k for k, st in enumerate(steps) if st["kind"] == "write" and (k + 1 == len(steps) or steps[k + 1]["kind"] != "write")]
+    angles = []
+    for k in ends:
+        goto(k)
+        angles.append(round(state()["probe"]["angle"]))
+    expect("servo: 1.0, 1.5 and 2.0 ms read as -45, 0 and +45 degrees", angles == [-45, 0, 45], angles)
+
+
+def dcmotor():
+    steps = steps_of("dcmotor")
+    open_page("examples/dcmotor/dcmotor_viewer.html")
+
+    def first_after(note, kind=None):
+        k = next(i for i, st in enumerate(steps) if st.get("input_note", "").startswith(note))
+        return k
+    goto(first_after("SW0 を押す") + 1)
+    check("dcmotor: SW0 turns it forward", mode="正転", in1=1, in2=0)
+    goto(first_after("SW1 を押す") + 2)
+    check("dcmotor: SW1 turns it backward", mode="逆転", in1=0, in2=1)
+    k = first_after("SW2 を離す") - 1
+    goto(k)
+    check("dcmotor: SW2 switches IN1 fast", mode="正転")
+    speed = state()["probe"]["speed"]
+    expect("dcmotor: half the time on is half speed", abs(speed - 0.5) < 0.02, speed)
+    goto(first_after("SW2 を離す") + 1)
+    check("dcmotor: released, it runs down", mode="止まっていく（空転）")
 
 
 def main():
@@ -281,6 +339,9 @@ def main():
     voltmeter()
     stopwatch()
     seg7_mux()
+    buzzer()
+    servo()
+    dcmotor()
     errors = ab("errors")
     if errors:
         failures += 1

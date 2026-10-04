@@ -1,0 +1,71 @@
+{
+  "title": "サーボモーターを 3 つの角度へ（servo.c）",
+  "output": "servo_viewer.html",
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/servo.c",
+      "fosc_hz": 4000000,
+      "summary": "RC0 から 20 ms ごとにパルスを出し、その幅（1.0 / 1.5 / 2.0 ms）でサーボの角度を決める",
+      "wait_ms": 20000,
+      "registers": [
+        "OSCCON",
+        "ANSEL",
+        "ANSELH",
+        "TRISC",
+        "PORTC"
+      ],
+      "circuit": {
+        "type": "servo",
+        "pin": "RC0",
+        "label": "SERVO"
+      },
+      "trace": [
+        {
+          "run_to": 17
+        },
+        {
+          "step": 5
+        },
+        {
+          "run_to": 25,
+          "show": 24
+        },
+        {
+          "until_write": "PORTC",
+          "count": 4,
+          "wait_ms": 3000
+        },
+        {
+          "run_to": 31,
+          "show": 30
+        },
+        {
+          "until_write": "PORTC",
+          "count": 4,
+          "wait_ms": 3000
+        },
+        {
+          "run_to": 37,
+          "show": 36
+        },
+        {
+          "until_write": "PORTC",
+          "count": 4,
+          "wait_ms": 3000
+        }
+      ],
+      "notes": {
+        "17": "内部発振器を 4 MHz に",
+        "18": "アナログ入力を使わない",
+        "20": "RC0 だけ出力（サーボの信号）",
+        "24": "幅 1.0 ms: 片側へ",
+        "30": "幅 1.5 ms: まん中",
+        "36": "幅 2.0 ms: 反対側へ",
+        "25": "信号を 1 にする。1 の時間（パルスの幅）がサーボの角度を決める。",
+        "27": "0 にして、残りの 19 ms 待つ（1 周期 20 ms）。"
+      }
+    }
+  ]
+}

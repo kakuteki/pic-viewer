@@ -45,7 +45,11 @@ def build_parser():
     b.add_argument("--no-probe", action="store_true",
                    help="止める行とレジスタ名の下調べ（シミュレータを 1 回余分に起こす）を省く")
     b.add_argument("--keep-going", action="store_true",
-                   help="1 本失敗しても次へ進む。失敗の中身は build/error.txt に残り、index のページにも出る")
+                   help="1 本失敗しても次へ進む。失敗の中身は build の置き場所の error.txt（日本語のパスなら "
+                        "%%LOCALAPPDATA%%/picviewer/build の下）に残り、index のページにも出る")
+    b.add_argument("--batch", action="store_true",
+                   help="シミュレータへの命令を 1 つの台本にまとめて渡す（0.5.0 までのやり方）。"
+                        "既定は開いたまま 1 回ずつ読み、待ちが続けて切れた until_write の残りを省く")
 
     r = sub.add_parser("render", help="記録（bundles/*.json）から HTML だけ作り直す。MPLAB X は要らない")
     r.add_argument("project", nargs="*", default=["."], help="build と同じ。picviewer.json の無いフォルダは、その下を全部")
@@ -68,11 +72,16 @@ def build_parser():
     i.add_argument("-o", "--out", default=".", help="作る場所（既定は今いる所）。1 本ごとに <out>/<ソースの名前>/ を作る")
     i.add_argument("-d", "--device", default="PIC16F886", help="マイコン（既定 PIC16F886）")
     i.add_argument("--switches", choices=["auto", "low", "high"], default="auto",
-                   help="スイッチを押したときの値。auto は ! や ~ を付けて読むピンを 0、ほかを 1 とみる（既定）")
+                   help="スイッチを押したときの値。auto はピンを調べる条件から決める（if が成り立つ値、待ちを抜ける値。"
+                        "決まらなければ ! や ~ を付けて読むピンを 0）。既定 auto")
+    i.add_argument("--digits", choices=["auto", "low", "high"], default="auto",
+                   help="7 セグの桁を点ける値。auto はプログラムから決める（1 つだけ違う値を書くピンが点けた桁）。"
+                        "同じ基板のプログラムをまとめて作るときに low か high でそろえる")
     i.add_argument("--switch-bank", help="ポートをまとめて読むとき（PORTC = PORTA など）のスイッチのピン（例 RA0,RA1,RA2,RA3）")
     i.add_argument("--writes", type=int, default=16, help="LED のポートへの書き込みを何回追うか（既定 16）")
     i.add_argument("--force", action="store_true", help="picviewer.json があっても作り直す")
-    i.add_argument("--keep-going", action="store_true", help="1 本失敗しても次へ進む")
+    i.add_argument("--keep-going", action="store_true",
+                   help="1 本失敗しても次へ進む。読めなかったプログラムも理由つきで一覧に載る（build はしない）")
 
     x = sub.add_parser("index", help="フォルダの下のプロジェクトを一覧にした index.html を作る")
     x.add_argument("folder", nargs="?", default=".")
@@ -135,7 +144,7 @@ def cmd_build(args):
             targets = [project.target(t) for t in args.target] if args.target else project.targets
             for t in targets:
                 build_target(project, t, tc, compile=not args.skip_compile, reuse_logs=args.reuse_logs,
-                             waves=not args.skip_waves, probe=not args.no_probe)
+                             waves=not args.skip_waves, probe=not args.no_probe, session=not args.batch)
             print(f"HTML: {render_project(project)}", flush=True)
             (project.build_dir / ERROR_FILE).unlink(missing_ok=True)
         except _errors() as e:
@@ -229,19 +238,22 @@ def _sources(raw_paths):
     return [f.resolve() for f in out]
 
 
-def record_failure(src, project_dir, device, error):
-    """A program that does not compile still gets a project, so that the index lists it with the reason."""
+def record_failure(src, project_dir, device, error, force=False):
+    """A program init cannot read still gets a project, so that the index lists it with the reason. The plan in it
+    is a placeholder marked with init_error, which build refuses to run. A plan already there is kept, unless force
+    (init --force: the old plan would be one this init no longer stands behind)."""
     import json
     from .index import ERROR_FILE
     from .project import load
     project_dir = Path(project_dir)
     project_dir.mkdir(parents=True, exist_ok=True)
     out = project_dir / "picviewer.json"
-    if not out.exists():
+    if force or not out.exists():
         rel = Path(os.path.relpath(src, project_dir.resolve())).as_posix() if src.drive == project_dir.resolve().drive else src.as_posix()
         project = {"title": src.stem, "output": f"{src.stem}_viewer.html", "targets": [{
             "id": device.lower(), "device": device, "source": rel,
-            "summary": "コンパイルできない（理由は一覧のページに出る）", "registers": ["STATUS"], "trace": [{"run_to": 1}]}]}
+            "summary": "init が読めなかった（理由は一覧のページに出る）", "init_error": str(error)[:2000],
+            "registers": ["STATUS"], "trace": [{"run_to": 1}]}]}
         out.write_text(json.dumps(project, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     build = load(out).build_dir
     build.mkdir(parents=True, exist_ok=True)
@@ -249,7 +261,6 @@ def record_failure(src, project_dir, device, error):
 
 
 def cmd_init(args):
-    from .compiler import CompileError
     from .init import init_source
     sources = _sources(args.sources)
     base = Path(os.path.commonpath([str(s.parent) for s in sources]))
@@ -260,19 +271,22 @@ def cmd_init(args):
         project_dir = Path(args.out) / src.parent.relative_to(base) / src.stem
         try:
             f = init_source(src, project_dir, args.device, tc, polarity=args.switches, bank=bank,
-                            writes=args.writes, force=args.force)
-        except _errors() as e:
+                            writes=args.writes, force=args.force, digits=args.digits)
+        except Exception as e:                 # noqa: BLE001 -- in a batch every failure is recorded and shown
             if not args.keep_going:
                 raise
             failed += 1
-            print(f"picviewer: {src.name}: {e}", file=sys.stderr, flush=True)
-            if isinstance(e, CompileError):
-                record_failure(src, project_dir, args.device, e)
+            known = isinstance(e, _errors())
+            print(f"picviewer: {src.name}: {'' if known else type(e).__name__ + ': '}{e}", file=sys.stderr, flush=True)
+            record_failure(src, project_dir, args.device, e if known else f"{type(e).__name__}: {e}", force=args.force)
             continue
         out = f"{f['out']}{'（7 セグ）' if f['seg7'] else ''}" if f["out"] else "なし"
         sw = "、".join(f["switches"]) or "なし"
+        extra = "".join([f"、回路 {'+'.join(f['parts'])}" if f.get("parts") else "",
+                         f"、ループの区切り {f['sections']}" if f.get("sections") else "",
+                         f"、同時押し {f['groups']} 組" if f.get("groups") else ""])
         print(f"{project_dir.as_posix()}/picviewer.json: 最初の行 {f['first']}、初期設定 {f['setup']} 行、"
-              f"出力 {out}、スイッチ {sw}{'、入力待ちから始まる' if f['wait_loop'] else ''}", flush=True)
+              f"出力 {out}、スイッチ {sw}{'、入力待ちから始まる' if f['wait_loop'] else ''}{extra}", flush=True)
     if len(sources) > 1:
         print(f"{len(sources)} 本のうち作った {len(sources) - failed} 本、失敗 {failed} 本")
     return 1 if failed else 0

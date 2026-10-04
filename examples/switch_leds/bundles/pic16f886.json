@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "tool": "picviewer 0.1.0",
+ "tool": "picviewer 0.6.0",
  "target": "pic16f886",
  "device": "PIC16F886",
  "arch": "16xxxx",
@@ -10,7 +10,7 @@
  "traced": "2026-10-04",
  "fast_forward": 1000,
  "vdd": 5.0,
- "source_name": "pic16f886/leds.c",
+ "source_name": "leds.c",
  "pins": [
   ["RE3", "MCLR", "Vpp"],
   ["RA0", "AN0", "ULPWU", "C12IN0-"],

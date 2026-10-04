@@ -9,9 +9,9 @@ from .bundle import make_bundle, make_steps, read_source, register_info
 from .compiler import FAST_VAR, compile_target, compiled_name, elf_path, skipped_per_ms
 from .linetab import line_at, read_line_table, writer_address
 from .mdb import (MdbError, key_stimulus, parse_records, plan_wait_seconds, probe_commands, probe_errors,
-                  run as mdb_run, trace_commands)
+                  run as mdb_run, run_trace, script, skipped_stops, trace_chunks)
 from .picdef import PicDef
-from .project import keypad_keys, keypad_of, plan_lines, plan_pins, plan_watches
+from .project import ProjectError, keypad_keys, keypad_of, plan_lines, plan_pins, plan_watches
 from .toolchain import find_device_file, xc8_version
 from .wave import parse_samples, summarize, wave_commands
 
@@ -59,7 +59,13 @@ def check_names(target, picdef):
         raise MdbError("\n".join(errors))
 
 
-def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=True, probe=True, log=_say):
+def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=True, probe=True, session=True,
+                 log=_say):
+    """session: keep mdb open and read each stop before the next (run_trace); False runs the plan as one script."""
+    if target.init_error:
+        # a placeholder init wrote so that the index lists the program: its plan was never read from the source
+        raise ProjectError(f"init がこのプログラムを読めなかった: {target.init_error}\n"
+                           "ソースを直してから init --force をやり直す（計画を手で書いたなら init_error を消す）")
     work = project.build_dir / target.id
     work.mkdir(parents=True, exist_ok=True)
     elf = elf_path(target, work)
@@ -94,18 +100,24 @@ def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=T
             errors = probe_errors(probe_text, target.source_name, target.device)
             if errors:
                 raise MdbError("\n".join(errors))
-        cmds, kinds = trace_commands(target.device, elf, src, target.trace, target.registers,
-                                     target.wait_ms, variables, keypad=keypad_setup(target, work))
-        log(f"[{target.id}] シミュレータで実行（{len(kinds)} 回止めてレジスタを読む）")
-        text = mdb_run(mdb, cmds, trace_log,
-                       timeout=300 + plan_wait_seconds(target.trace, target.wait_ms) + len(kinds) * 3)
+        chunks = trace_chunks(target.device, elf, src, target.trace, target.registers,
+                              target.wait_ms, variables, keypad=keypad_setup(target, work))
+        stops = sum(1 for _, s in chunks if s)
+        if session:
+            log(f"[{target.id}] シミュレータで実行（最大 {stops} 回止めてレジスタを読む）")
+            text = run_trace(mdb, chunks, trace_log, target.registers + variables, src)
+        else:
+            log(f"[{target.id}] シミュレータで実行（{stops} 回止めてレジスタを読む、一括）")
+            text = mdb_run(mdb, script(chunks), trace_log,
+                           timeout=300 + plan_wait_seconds(target.trace, target.wait_ms) + stops * 3)
 
     table = read_line_table(elf.with_suffix(".cmf"), src)
     steps = make_steps(target.trace, parse_records(text, target.registers + variables, src), registers,
                        writer_line=lambda a: line_at(table, writer_address(target.device, a)) if table else None,
                        line_of=lambda a: line_at(table, a) if table else None,
                        delay_var=FAST_VAR if target.fast_forward else None,
-                       us_per_ms=skipped_per_ms(target.fast_forward) if target.fast_forward else 0)
+                       us_per_ms=skipped_per_ms(target.fast_forward) if target.fast_forward else 0,
+                       skipped=skipped_stops(text))
 
     wave_results = []
     if waves:

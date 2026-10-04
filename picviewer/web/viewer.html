@@ -166,6 +166,9 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 /* keypad and potentiometer */
 #cir.keypad { max-width: 470px; min-width: 300px; }
 #cir.narrow { max-width: 230px; min-width: 0; }
+#cir.buzzer { max-width: 300px; min-width: 0; }
+#cir.servo { max-width: 340px; min-width: 0; }
+#cir.dcmotor { max-width: 440px; min-width: 300px; }
 #cir .wire path.hot { stroke: var(--recirc); stroke-width: 3.5; }
 #cir .key rect { fill: var(--panel); stroke: var(--fg); stroke-width: 1.5; }
 #cir .key text { font-family: var(--mono); font-weight: 700; }
@@ -218,6 +221,7 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 .status div { background: var(--inset); border-radius: 8px; padding: 6px 9px; min-width: 0; }
 .status dt { font-size: 11px; color: var(--dim); }
 .status dd { margin: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+.status dd.mono { white-space: pre; font-family: ui-monospace, Consolas, monospace; }
 .status .on { background: var(--accent-soft); }
 .status .on dd { color: var(--accent-ink); }
 .status .re { background: var(--recirc-soft); }

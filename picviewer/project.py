@@ -9,11 +9,13 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd", "seg7", "seg7mux", "keypad", "pot")
+CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd", "seg7", "seg7mux", "keypad", "pot", "buzzer", "servo",
+                 "dcmotor")
+PIN_RE = re.compile(r"R[A-Z][0-7]", re.I)
 COUNTER_RE = re.compile(r"^(TMR\d+[LH]?|T\d+TMR[LH]?)$")
 PROJECT_KEYS = {"title", "output", "bundles", "build", "circuit", "wait_ms", "fast_forward", "targets"}
 TARGET_KEYS = {"id", "device", "source", "fosc_hz", "summary", "registers", "counters", "trace",
-               "circuit", "notes", "waves", "xc8_args", "wait_ms", "fast_forward"}
+               "circuit", "notes", "waves", "xc8_args", "wait_ms", "fast_forward", "init_error"}
 DEFAULT_WAIT_MS = 600000
 FAST_FACTORS = (10, 100, 1000)
 
@@ -46,6 +48,7 @@ class Target:
     xc8_args: list = field(default_factory=list)
     wait_ms: int = DEFAULT_WAIT_MS
     fast_forward: int | None = None
+    init_error: str = ""             # init could not read the program: the plan is a placeholder, not to be run
 
 
 @dataclass
@@ -69,8 +72,9 @@ class Project:
 
 
 def ascii_build_dir(path):
-    """XC8 cannot open files under a path with Japanese or other non-ASCII characters (it gets them mangled),
-    and this PC has no 8.3 short names to fall back on. Such a build folder moves to an ASCII place."""
+    """XC8 cannot open files under a path with Japanese or other non-ASCII characters (it gets them mangled).
+    8.3 short names are no way out: a folder may have none, its short name may keep the Japanese characters,
+    and XC8 writes the short file name into the line table. Such a build folder moves to an ASCII place."""
     if str(path).isascii():
         return path
     digest = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:12]
@@ -189,7 +193,11 @@ def plan_watches(plan):
 def watch_list(action):
     """The registers an until_write watches, as a list (it may be written as one name)."""
     w = action.get("until_write")
-    return [w] if isinstance(w, str) else list(dict.fromkeys(w)) if isinstance(w, list) else []
+    if isinstance(w, str):
+        return [w]
+    if isinstance(w, list) and all(isinstance(r, str) for r in w):
+        return list(dict.fromkeys(w))
+    return []                          # anything else is refused by parse_plan
 
 
 def circuit_parts(circuit):
@@ -220,6 +228,25 @@ def keypad_keys(part):
     return out
 
 
+def _check_pins(part, where):
+    """The pins a part needs, in the form the views read (RB0, not 6 or PORTBbits.RB0)."""
+    def pin(v):
+        return isinstance(v, str) and PIN_RE.fullmatch(v) is not None
+    ty = part["type"]
+    if ty in ("buzzer", "servo") and not pin(part.get("pin")):
+        raise ProjectError(f'{where}: {ty} には pin（例 "RB0"）が要る')
+    if ty == "dcmotor" and not (pin(part.get("in1")) and pin(part.get("in2"))):
+        raise ProjectError(f'{where}: dcmotor には in1 と in2（例 "RC0" と "RC1"）が要る')
+    if ty == "seg7mux":
+        digits = part.get("digits")
+        if not (isinstance(digits, list) and digits and all(
+                isinstance(d, dict) and pin(d.get("pin")) and d.get("active", "high") in ("high", "low") for d in digits)):
+            raise ProjectError(f'{where}: seg7mux の digits は [{{"pin": "RA0", "active": "low"}}, ...] の形で書く')
+    if ty == "leds" and "names" in part and not (
+            isinstance(part["names"], dict) and all(str(k).isdigit() and isinstance(v, str) for k, v in part["names"].items())):
+        raise ProjectError(f'{where}: leds の names は {{"0": "LED0", ...}}（ビット番号と名前）の形で書く')
+
+
 def _circuit(raw, defaults, where):
     """The target's circuit: its own, else the project's; a dict of its own is laid over a project dict."""
     own, common = raw.get("circuit"), defaults.get("circuit")
@@ -246,6 +273,7 @@ def _circuit(raw, defaults, where):
                 keypad_keys(p)
             except ProjectError as e:
                 raise ProjectError(f"{where}: {e}") from None
+        _check_pins(p, where)
     return parts if listed is not None else parts[0]
 
 
@@ -306,6 +334,7 @@ def _target(raw, project_dir, defaults, index):
         trace=trace, fosc_hz=fosc, summary=raw.get("summary", ""),
         notes=dict(notes), circuit=circuit, counters=list(counters), waves=waves,
         xc8_args=list(raw.get("xc8_args", [])), wait_ms=wait_ms, fast_forward=fast,
+        init_error=str(raw.get("init_error", "")),
     )
 
 

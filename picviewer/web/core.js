@@ -91,6 +91,59 @@
         e: vs(x, y + h / 2, y + h), c: vs(x + w, y + h / 2, y + h) };
     },
   };
+  // What the recording knows between two stops. The values read at a stop hold until the next one only when the
+  // program could not change the circuit unseen in between: up to a write stop (every write to the watched
+  // registers stops it), a timeout (no write came) or a step. Up to a run_to stop the program ran freely, and
+  // after the end of an until_write the writes were no longer followed: those stretches are unknown.
+  const knownAfter = (t, i) => {
+    const next = t.steps[i + 1];
+    return Boolean(next) && next.kind !== 'run' && next.kind !== 'start' && t.steps[i].kind !== 'end';
+  };
+  // the recorded stretches before step k, newest first, as far back as `span` (seconds, or instruction cycles
+  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut}
+  function history(t, k, span) {
+    const timeOf = (i) => { const s = secondsOf(t, t.steps[i]); return s === null ? t.steps[i].cycles : s; };
+    const end = timeOf(k);
+    const spans = [];
+    let cut = false;
+    for (let i = k - 1; i >= 0; i--) {
+      const b = timeOf(i + 1);
+      if (end - b >= span) break;
+      if (!knownAfter(t, i)) { cut = true; break; }
+      const a = Math.max(timeOf(i), end - span);
+      if (b > a) spans.push({ from: a, to: b, R: regsAt(t, t.steps[i]), i });
+      if (end - timeOf(i) >= span) break;
+    }
+    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end };
+  }
+  // a pin's last full cycle before step k, from its level at each stop (level(R) gives 0 or 1): the time from the
+  // second last rising edge to the last, and how long it was 1 in it. null when it did not go round twice within
+  // `span` of recorded time. `since` is how long ago its level last changed.
+  function pulse(t, k, level, span) {
+    const h = history(t, k, span);
+    // inputs changed by the plan (set, press) change what the program does; in the simulation they come only
+    // a few writes apart, so a cycle must not reach back across one: start from the last change
+    let since = 0;
+    for (let i = k; i > 0; i--) if (t.steps[i].inputs || t.steps[i].key !== undefined) { since = i - 1; break; }
+    const cutAtInput = h.spans.length > 0 && h.spans[h.spans.length - 1].i < since;
+    h.spans = h.spans.filter((s) => s.i >= since);
+    h.cut = h.cut || cutAtInput;
+    const now = level(regsAt(t, t.steps[k]));
+    const seq = [{ at: h.end, v: now }, ...h.spans.map((s) => ({ at: s.from, v: level(s.R) }))];
+    // seq: the level from each moment on, newest first; an edge where the level differs from the one before it
+    const edges = [];
+    for (let j = 0; j + 1 < seq.length; j++) {
+      if (seq[j].v !== seq[j + 1].v) edges.push({ at: h.spans[j].to, rising: seq[j].v === 1 });
+    }
+    const ago = edges.length ? h.end - edges[0].at : null;
+    const rises = edges.filter((e) => e.rising);
+    if (rises.length < 2) return { period: null, high: null, duty: null, since: ago, level: now, cut: h.cut };
+    const [r1, r2] = rises;
+    const fall = edges.find((e) => !e.rising && e.at > r2.at && e.at <= r1.at);
+    const period = r1.at - r2.at;
+    const high = fall ? fall.at - r2.at : null;
+    return { period, high, duty: high === null || period <= 0 ? null : high / period, since: ago, level: now, cut: h.cut };
+  }
   PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath, seg7 };
 
   // ---------------- data helpers
@@ -310,7 +363,7 @@
       let note;
       if (st.kind === 'end') note = t.notes[String(st.exec)] || `${st.exec} 行目に来たので、${st.watch} への書き込みを追うのを終える。`;
       else if (repeat) note = '同じ行をもう一度実行した（ループの中）。レジスタは変わらない。';
-      else note = t.notes[String(st.exec)] || auto;
+      else note = t.notes[String(st.exec)] ? `${t.notes[String(st.exec)]}${bits.length ? `（${auto}）` : ''}` : auto;
       if (st.kind === 'write') note = `${st.watch} に書いた所で止めた。` + note;
       $('exNote').textContent = inputs + note;
     }
@@ -365,7 +418,7 @@
   function paintStatus(list) {
     $('cirStatus').replaceChildren(...list.map((s) => {
       const d = el('div', s.tone || '');
-      d.append(el('dt', '', s.label), el('dd', '', s.value));
+      d.append(el('dt', '', s.label), el('dd', s.mono ? 'mono' : '', s.value));   // mono keeps blank digits in place
       return d;
     }));
   }
@@ -585,7 +638,10 @@
       inputs: inputsAt(t, S.step), key: keyAt(t, S.step), regsAt: (step) => regsAt(t, step), fmtTime,
       instrHz: instrHz(t), seconds: secondsOf(t, st),
       // seconds since reset of any step (instruction cycles when the clock is not known)
-      timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; } };
+      timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; },
+      // the recorded stretches before this step, and a pin's last full cycle (see history and pulse above)
+      history: (span) => history(t, S.step, span),
+      pulse: (level, span) => pulse(t, S.step, level, span) };
     const boxes = $('cirBox').children;
     const results = partsOf(t).map((cfg, i) => pluginOf(cfg).update({ ...base, cfg, box: boxes[i] }) || {});
     paintStatus(results.flatMap((r) => r.status || []));

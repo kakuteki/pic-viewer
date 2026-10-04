@@ -60,15 +60,16 @@ def expand_plan(plan):
     return out
 
 
-def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_per_ms=0, line_of=None):
+def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_per_ms=0, line_of=None, skipped=()):
     """Steps for the page. writer_line(address) gives the source line of the instruction that made a write stop,
     line_of(address) the line of a stop address the ELF gives no line for (from XC8's map file).
     delay_var is the fast-forward count of milliseconds asked of __delay_ms; us_per_ms of each were cut away.
+    skipped: the stops of the plan (counted from 0) that were not made (mdb.skipped_stops), so have no record.
 
     A write stop made by Halt after the wait ran out becomes a 'timeout' step (nothing was written);
     a second one in a row within the same until_write is dropped, as it only repeats the first.
     """
-    expected = expand_plan(plan)
+    expected = [e for i, e in enumerate(expand_plan(plan)) if i not in skipped]
     if len(records) != len(expected):
         raise MdbError(f"止まった回数 {len(records)} が計画の {len(expected)} 回と合わない")
     cycles = absolute_cycles(records, [e["kind"] for e in expected])
@@ -119,7 +120,13 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
             step["where"] = rec["where"]
         if e["kind"] == "write":
             watched = e["watch"]
-            changed = [r for r in watched if before_values and r in rec["values"] and rec["values"][r] != before_values.get(r)]
+
+            def out_bits(values, reg):
+                # a PORT value also moves when only an input changed: compare the output bits (TRIS 0) when known
+                tris = values.get("TRIS" + reg[-1]) if reg.startswith("PORT") else None
+                return values.get(reg, 0) & (~tris & 0xFF if tris is not None else 0xFFFF)
+            changed = [r for r in watched if before_values and r in rec["values"]
+                       and out_bits(rec["values"], r) != out_bits(before_values, r)]
             # one name when one register is watched, or when only one of several changed
             step["watch"] = changed[0] if len(watched) > 1 and len(changed) == 1 else " か ".join(watched)
         inputs = {**carry, **{k: e[k] for k in ("inputs", "input_note", "key") if k in e}}

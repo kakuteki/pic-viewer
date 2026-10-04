@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "tool": "picviewer 0.1.0",
+ "tool": "picviewer 0.6.0",
  "target": "pic16f1618",
  "device": "PIC16F1618",
  "arch": "16Exxx",
@@ -8,8 +8,9 @@
  "pack": {"name": "PIC12-16F1xxx_DFP", "version": "1.9.258"},
  "tools": {"mplabx": "v6.35", "xc8": "v3.00"},
  "traced": "2026-10-04",
+ "fast_forward": null,
  "vdd": 5.0,
- "source_name": "pic16f1618/motor.c",
+ "source_name": "motor.c",
  "pins": [
   ["VDD"],
   ["RA5", "CLKIN"],

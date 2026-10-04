@@ -1,6 +1,8 @@
 /* leds: push switches on input pins and one LED (with its resistor) on each pin of a port.
    Each switch is either to the supply with a pull-down (active "high": pressed reads 1)
-   or to GND with a pull-up (active "low": pressed reads 0). */
+   or to GND with a pull-up (active "low": pressed reads 0). names gives an LED the name the program uses for it.
+   An LED switched on and off faster than the eye follows (software PWM) is drawn as bright as the share of the
+   time it is on, measured over its last full cycle in the recorded stops. */
 (() => {
   'use strict';
 
@@ -9,6 +11,8 @@
   const LED_DX = 62;     // width of an LED column
   const RAIL = 300;      // y of the GND rail
   const NODE = 172;      // y where a switch, its resistor and the pin meet
+  const SPAN = 0.1;      // seconds of recording searched for one on-off cycle
+  const PWM_MAX = 0.05;  // a cycle shorter than this (over 20 Hz) is seen as brightness, not as blinking
 
   function ledColumns(t, cfg) {
     const port = String(cfg.port || 'C').toUpperCase();
@@ -85,6 +89,8 @@
       add('circle', { class: 'halo', cx, cy: 202, r: 20 }, undefined, g);
       add('path', { class: 'led-body', d: high ? `M${cx - 13} 190 H${cx + 13} L${cx} 212 Z` : `M${cx - 13} 214 H${cx + 13} L${cx} 192 Z` }, undefined, g);
       add('line', { class: 'led-bar', x1: cx - 13, x2: cx + 13, y1: high ? 214 : 190, y2: high ? 214 : 190 }, undefined, g);
+      const name = cfg.names && cfg.names[String(b)];
+      if (name) add('text', { class: 'small', x: cx + 7, y: 262 }, String(name));
     });
     if (L.bits.length) add('text', { class: 'dim small', x: L.ledStart - 20, y: RAIL + 24 }, `各 LED に抵抗 ${cfg.r_ohm || 330} Ω`);
     return svg;
@@ -129,9 +135,22 @@
       const g = svg.querySelector('#gCur');
       g.replaceChildren();
       const lit = [];
+      const pwm = [];
       L.bits.forEach((b, i) => {
-        const on = ((tris >> b) & 1) === 0 && ((latch >> b) & 1) === (high ? 1 : 0);
-        svg.querySelector(`.ledg[data-bit="${b}"]`).classList.toggle('lit', on);
+        const isOn = (Rx) => {
+          const lt = U.latchOf(Rx, L.port);
+          const tr = Rx['TRIS' + L.port];
+          return lt !== undefined && tr !== undefined && ((tr >> b) & 1) === 0 && ((lt >> b) & 1) === (high ? 1 : 0) ? 1 : 0;
+        };
+        const on = isOn(R) === 1;
+        const led = svg.querySelector(`.ledg[data-bit="${b}"]`);
+        // switched on and off faster than the eye follows: as bright as the share of time it is on
+        const p = ctx.instrHz ? ctx.pulse(isOn, SPAN) : null;
+        const duty = p && p.period !== null && p.period < PWM_MAX && p.duty !== null && p.since <= 2 * p.period ? p.duty : null;
+        led.classList.toggle('lit', on || duty !== null);
+        led.querySelector('.led-body').setAttribute('fill-opacity', duty === null ? '1' : (0.2 + 0.8 * duty).toFixed(3));
+        led.querySelector('.halo').style.opacity = duty === null ? '' : (0.3 * duty).toFixed(3);
+        if (duty !== null) pwm.push({ pin: `R${L.port}${b}`, duty, period: p.period });
         if (on) {
           lit.push(`R${L.port}${b}`);
           const cx = L.ledStart + i * LED_DX;
@@ -147,13 +166,17 @@
         { label: `PORT${L.port} の出力`, value: `${U.hex(latch)}（${pattern}）`, tone: lit.length ? 'on' : '' },
         { label: '点灯', value: `${lit.length} 個`, tone: lit.length ? 'on' : '' },
       ] : [];
+      if (pwm.length) status.push({ label: '明るさ（点灯の割合）', value: pwm.map((x) => `${x.pin} ${Math.round(x.duty * 100)} %`).join('、'), tone: 'on' });
       if (known) status.push({ label: '押しているスイッチ', value: pressedNames.join('、') || 'なし', tone: pressedNames.length ? 'on' : '' });
       const swText = !known ? '' : pressedNames.length ? `押しているスイッチ: ${pressedNames.join('、')}。` : 'スイッチはどれも離してある。';
-      const ledText = !L.bits.length ? '' : lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。';
+      const ledText = (!L.bits.length ? '' : lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。')
+        + pwm.map((x) => `${x.pin} は ${ctx.fmtTime(x.period)} ごとに点けたり消したりしていて、点いている割合は ${Math.round(x.duty * 100)} %。`
+          + '目には点滅ではなく、その割合の明るさで光って見える（PWM）。').join('');
       return {
         status,
         text: ledText + swText + U.mismatchText(sw),
-        probe: { pattern, lit: lit.length, pressed: known ? pressedNames.length > 0 : null, pressedNames },
+        probe: { pattern, lit: lit.length, pressed: known ? pressedNames.length > 0 : null, pressedNames,
+          pwm: Object.fromEntries(pwm.map((x) => [x.pin, x.duty])) },
       };
     },
   };

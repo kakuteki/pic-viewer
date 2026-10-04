@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "tool": "picviewer 0.3.0",
+ "tool": "picviewer 0.6.0",
  "target": "pic16f886",
  "device": "PIC16F886",
  "arch": "16xxxx",

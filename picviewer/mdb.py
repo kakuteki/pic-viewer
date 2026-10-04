@@ -1,13 +1,22 @@
 """Drive the MPLAB X command line debugger (mdb) in simulator mode and read what it prints."""
 from __future__ import annotations
 
+import os
+import queue
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 from .project import watch_list
 from .toolchain import BELOW_NORMAL, NO_WINDOW, ascii_path
+
+# mdb's Java starts with 1/64 of the machine's memory and grows lazily towards 1/4: 1.3 GB per run on a 32 GB
+# machine. Starting small with a cap keeps a run near 0.5 GB with the same records (measured). Taken only when
+# JAVA_TOOL_OPTIONS is not set already; PICVIEWER_JAVA_OPTIONS replaces it.
+JAVA_OPTIONS = "-Xms64m -Xmx768m -XX:+UseSerialGC"
 
 
 class MdbError(Exception):
@@ -18,12 +27,28 @@ def _kill_tree(proc):
     if sys.platform == "win32":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, creationflags=NO_WINDOW)
     else:
-        import os
         import signal
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
             pass
+
+
+def _launch(mdb, *extra):
+    """Popen arguments for mdb (a .bat, a program, or a list for tests) with the arguments after it."""
+    env = dict(os.environ)
+    env.setdefault("JAVA_TOOL_OPTIONS", os.environ.get("PICVIEWER_JAVA_OPTIONS", JAVA_OPTIONS))
+    # below normal priority, inherited by the java process: a long batch must not make the machine sluggish
+    if sys.platform == "win32":
+        kw = {"creationflags": NO_WINDOW | BELOW_NORMAL, "env": env}
+    else:
+        kw = {"start_new_session": True, "preexec_fn": lambda: os.nice(10), "env": env}
+    if isinstance(mdb, (list, tuple)):
+        return {"args": [str(a) for a in [*mdb, *extra]], "shell": False, **kw}
+    if str(mdb).lower().endswith(".bat"):
+        # one more pair of quotes around the whole line is what cmd needs when both paths have spaces
+        return {"args": " ".join(f'"{a}"' for a in [mdb, *extra]), "shell": True, **kw}
+    return {"args": [str(a) for a in [mdb, *extra]], "shell": False, **kw}
 
 
 def run(mdb, commands, log_path, timeout):
@@ -32,18 +57,7 @@ def run(mdb, commands, log_path, timeout):
     script = log_path.with_suffix(".mdb")
     # mdb.bat starts Java with -Dfile.encoding=UTF-8, so paths with Japanese names go through as UTF-8
     script.write_text("\n".join(commands) + "\n", encoding="utf-8", newline="\n")
-    if str(mdb).lower().endswith(".bat"):
-        # one more pair of quotes around the whole line is what cmd needs when both paths have spaces
-        args, shell = f'"{mdb}" "{short(script)}"', True
-    else:
-        args, shell = [str(mdb), str(script)], False
-    # below normal priority, inherited by the java process: a long batch must not make the machine sluggish
-    if sys.platform == "win32":
-        kw = {"creationflags": NO_WINDOW | BELOW_NORMAL}
-    else:
-        import os
-        kw = {"start_new_session": True, "preexec_fn": lambda: os.nice(10)}
-    proc = subprocess.Popen(args, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+    proc = subprocess.Popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_launch(mdb, short(script)))
     try:
         out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -109,8 +123,11 @@ def key_stimulus(device, row, col):
     ])
 
 
-def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables=(), keypad=None):
-    """Commands for the whole plan, and the kind of each stop ('start', 'step', 'run' or 'write').
+def trace_chunks(device, elf, source_name, plan, registers, wait_ms, variables=(), keypad=None):
+    """The plan as (commands, stop) pairs in order. stop is None for commands that only set things up,
+    otherwise the commands make one stop and end with Stopwatch, and stop says what it is:
+    {"index": n-th stop of the plan, "kind": 'start', 'step', 'run' or 'write', "wait": ms,
+    and for 'write' "segment": the n-th until_write (as bundle.expand_plan counts) and "until": its line}.
 
     keypad: {"cols": [column pins], "keys": {label: (row, column)}, "scl": {label: SCL file}}. The columns
     start high (the simulator has no pull-ups); a press loads the key's SCL with Stim, a release clears it.
@@ -121,60 +138,206 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
     Halt: on a halted target it does nothing, on a running one it stops where the program is.
     """
     prints = [f"Print {r}" for r in registers] + [f"Print {v}" for v in variables] + ["Stopwatch"]
-    cmds = header(device, elf)
-    kinds, active = [], []
-    next_no, started = 0, False
+    chunks, setup, active = [], header(device, elf), []
+    next_no, stops, segment, started = 0, 0, 0, False
     held = None
     if keypad:
-        cmds.extend(f"write pin {c} high" for c in keypad["cols"])
+        setup.extend(f"write pin {c} high" for c in keypad["cols"])
+
+    def stop(commands, **info):
+        nonlocal setup, stops
+        if setup:
+            chunks.append((setup, None))
+            setup = []
+        chunks.append((commands, {"index": stops, **info}))
+        stops += 1
 
     def let_go():
         nonlocal held
         if held is not None:
-            cmds.extend(["Stim", f"write pin {keypad['keys'][held][1]} high"])
+            setup.extend(["Stim", f"write pin {keypad['keys'][held][1]} high"])
             held = None
 
     def clear():
-        cmds.extend(f"Delete {n}" for n in active)
+        setup.extend(f"Delete {n}" for n in active)
         active.clear()
 
     def add(command):
         nonlocal next_no
-        cmds.append(command)
+        setup.append(command)
         active.append(next_no)
         next_no += 1
 
     for action in plan:
         if "set" in action:
-            cmds.extend(f"write pin {pin} {level}" for pin, level in action["set"].items())
+            setup.extend(f"write pin {pin} {level}" for pin, level in action["set"].items())
         elif "press" in action:
             let_go()
-            cmds.append(f'Stim "{short(keypad["scl"][action["press"]]).as_posix()}"')
+            setup.append(f'Stim "{short(keypad["scl"][action["press"]]).as_posix()}"')
             held = action["press"]
         elif "release" in action:
             let_go()
         elif "step" in action:
             for _ in range(action["step"]):
-                cmds += ["Step", *prints]
-                kinds.append("step")
+                stop(["Step", *prints], kind="step", wait=0)
         elif "run_to" in action:
             clear()
             add(f"Break {source_name}:{action['run_to']}")
-            cmds += ["Continue" if started else "Run", f"Wait {wait_ms}", "Halt", *prints]
-            kinds.append("run" if started else "start")
+            stop(["Continue" if started else "Run", f"Wait {wait_ms}", "Halt", *prints],
+                 kind="run" if started else "start", wait=wait_ms)
             started = True
         elif "until_write" in action:
             clear()
+            segment += 1
             for reg in watch_list(action):              # several watchpoints: a write to any of them stops
                 add(f"Watch {reg} W")
             if action.get("until"):
                 add(f"Break {source_name}:{action['until']}")
             wait = action.get("wait_ms", wait_ms)
             for _ in range(action["count"]):
-                cmds += ["Continue", f"Wait {wait}", "Halt", *prints]
-                kinds.append("write")
-    cmds.append("Quit")
-    return cmds, kinds
+                stop(["Continue", f"Wait {wait}", "Halt", *prints], kind="write", wait=wait,
+                     segment=segment, until=action.get("until"))
+    if setup:
+        chunks.append((setup, None))
+    return chunks
+
+
+def script(chunks):
+    """trace_chunks as one script for run()."""
+    return [c for commands, _ in chunks for c in commands] + ["Quit"]
+
+
+def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables=(), keypad=None):
+    """Commands for the whole plan as one script, and the kind of each stop ('start', 'step', 'run' or 'write')."""
+    chunks = trace_chunks(device, elf, source_name, plan, registers, wait_ms, variables, keypad)
+    return script(chunks), [s["kind"] for _, s in chunks if s]
+
+
+# what a session writes into the log for a stop it did not make, so that the log alone tells the stops apart
+NOT_MADE = "picviewer: stop {} not made (its until_write had ended)"
+NOT_MADE_RE = re.compile(r"^picviewer: stop (\d+) not made", re.M)
+STOPWATCH_RE = re.compile(r"Stopwatch cycle count = \d+")
+# the prompt of mdb's terminal comes before the next line it prints when commands arrive through a pipe
+PROMPT_RE = re.compile(r"^(?:\x1b\[[0-9;?]*[A-Za-z]|>\s?)+")
+ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def skipped_stops(text):
+    """The stops a session left out, as it wrote them into its log (none in a log from run())."""
+    return {int(n) for n in NOT_MADE_RE.findall(text)}
+
+
+def _clean(line):
+    return PROMPT_RE.sub("", ESCAPE_RE.sub("", line.replace("\r", "")))
+
+
+class Session:
+    """One mdb kept open: commands go in through a pipe, and what it printed is read back as it comes,
+    so the next commands can depend on how the last stop went."""
+
+    def __init__(self, mdb, log_path):
+        self.log_path = Path(log_path)
+        self.lines, self.sent = [], []
+        self.err = open(self.log_path.with_suffix(".err.log"), "wb")
+        self.proc = subprocess.Popen(stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.err, **_launch(mdb))
+        self.queue = queue.Queue()
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        try:
+            for raw in iter(self.proc.stdout.readline, b""):
+                self.queue.put(raw.decode("utf-8", errors="replace"))
+        except (OSError, ValueError):          # the pipe closed under us after a kill
+            pass
+        self.queue.put(None)
+
+    def send(self, commands):
+        self.sent.extend(commands)
+        self.proc.stdin.write("".join(c + "\n" for c in commands).encode("utf-8"))
+        self.proc.stdin.flush()
+
+    def note(self, text):
+        self.lines.append(text + "\n")
+
+    def read_until(self, pattern, seconds):
+        """The lines printed up to the first one that matches. MdbError if mdb ends or the time runs out first."""
+        deadline = time.monotonic() + seconds
+        got = []
+        while True:
+            try:
+                line = self.queue.get(timeout=max(deadline - time.monotonic(), 0.001))
+            except queue.Empty:
+                raise MdbError(f"mdb が {seconds:.0f} 秒たっても止まらない（止めた）。記録: {self.log_path}") from None
+            if line is None:
+                raise MdbError(f"mdb が途中で終わった。記録: {self.log_path}")
+            line = _clean(line)
+            self.lines.append(line)
+            got.append(line)
+            if pattern.match(line.strip()):
+                return got
+
+    def close(self, seconds=60, quit=True):
+        """Quit (or kill), keep the rest of what was printed and write the log; returns the whole text."""
+        try:
+            if quit and self.proc.poll() is None:
+                self.send(["Quit"])
+                self.proc.wait(timeout=seconds)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if self.proc.poll() is None:
+            _kill_tree(self.proc)
+            self.proc.wait()
+        while True:
+            try:
+                line = self.queue.get(timeout=5)
+            except queue.Empty:
+                break
+            if line is None:
+                break
+            self.lines.append(_clean(line))
+        for f in (self.proc.stdin, self.proc.stdout, self.err):
+            try:
+                f.close()
+            except OSError:
+                pass
+        text = "".join(self.lines)
+        self.log_path.write_text(text, encoding="utf-8")
+        self.log_path.with_suffix(".mdb").write_text("\n".join(self.sent) + "\n", encoding="utf-8", newline="\n")
+        return text
+
+
+def run_trace(mdb, chunks, log_path, registers, source_name=None, margin=120):
+    """Run trace_chunks in one mdb kept open and return its log, as run() would for trace_commands.
+
+    A write stop is read before the next is sent. Two waits in a row that run out with nothing written, or a
+    stop at the until line, end that until_write: the rest of its stops would each wait the whole time again
+    (the program is waiting for an input the plan has not given yet) or only repeat the end. Those stops are
+    not made, and the log says so (skipped_stops), so make_steps lines the records up with the plan.
+    """
+    session = Session(mdb, log_path)
+    ended, quiet = set(), {}
+    try:
+        for commands, stop in chunks:
+            if stop is None:
+                session.send(commands)
+                continue
+            segment = stop.get("segment")
+            if segment in ended:
+                session.note(NOT_MADE.format(stop["index"]))
+                continue
+            session.send(commands)
+            got = session.read_until(STOPWATCH_RE, stop["wait"] / 1000 + margin)
+            if stop["kind"] != "write":
+                continue
+            rec = parse_records("".join(got), registers, source_name)[-1]
+            quiet[segment] = quiet.get(segment, 0) + 1 if rec["timeout"] else 0
+            if quiet[segment] >= 2 or (stop.get("until") and rec["line"] == stop["until"]):
+                ended.add(segment)
+    except BaseException:
+        session.close(quit=False)
+        raise
+    # every stop was read back already: an mdb that ends badly after Quit has lost nothing
+    return session.close()
 
 
 def parse_records(text, registers, source_name=None):

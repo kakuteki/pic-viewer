@@ -1,0 +1,1444 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IN1・IN2 のモータードライバで DC モーター（drive.c）</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f1f2f6; --panel: #ffffff; --inset: #eceef3; --inset-hover: #dfe3ea;
+  --fg: #1b1e26; --dim: #596072; --wire: #7b8294;
+  --accent: #e07a10; --accent-ink: #a65200; --accent-soft: #fdebd3;
+  --recirc: #2f86c4; --recirc-ink: #1d5f8f; --recirc-soft: #d9ebf7;
+  --led: #f5b800; --led-off: #c9cdd6; --seg-on: #e8402a;
+  --bit1: #3d62b6; --bit1-ink: #ffffff; --bit0: #e4e7ee; --bit0-ink: #4d5464;
+  --hl: #ffefc2; --focus: #1f6feb;
+  --mono: Consolas, "BIZ UDGothic", "MS Gothic", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161b; --panel: #1e222a; --inset: #282d37; --inset-hover: #343a47;
+    --fg: #e4e7ee; --dim: #9ba2b3; --wire: #6f778a;
+    --accent: #ff9a2e; --accent-ink: #ffb061; --accent-soft: #43311b;
+    --recirc: #4ea3e0; --recirc-ink: #8cc8f2; --recirc-soft: #1c3449;
+    --led: #ffd246; --led-off: #4a4f5c; --seg-on: #ff6650;
+    --bit1: #5b83dd; --bit1-ink: #0e1116; --bit0: #2a2f3a; --bit0-ink: #aab1c2;
+    --hl: #40371f; --focus: #6ea8ff;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: "Yu Gothic UI", "Meiryo UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.5;
+}
+.wrap { max-width: 1840px; margin: 0 auto; padding: 16px 20px 28px; }
+.top { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-end; justify-content: space-between; }
+h1 { font-size: 20px; line-height: 1.3; margin: 0; }
+.sub { margin: 2px 0 0; color: var(--dim); font-size: 13px; }
+.choices { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.seg { border: 0; padding: 0; margin: 0; min-width: 0; }
+.seg legend { font-size: 12px; color: var(--dim); padding: 0; margin-bottom: 4px; }
+.seg .opts { display: inline-flex; flex-wrap: wrap; background: var(--inset); border-radius: 9px; padding: 3px; gap: 3px; }
+.seg label { position: relative; display: block; }
+.seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.seg span { display: block; padding: 5px 12px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.seg input:checked + span { background: var(--panel); font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, .28); }
+.seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.transport {
+  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 12px 0 10px;
+}
+.transport .buttons { display: flex; gap: 6px; }
+.transport button {
+  font: inherit; min-width: 60px; padding: 6px 12px; border: 0; border-radius: 8px;
+  background: var(--inset); color: var(--fg); cursor: pointer;
+}
+.transport button:hover:not(:disabled) { background: var(--inset-hover); }
+.transport button:disabled { opacity: .45; cursor: default; }
+.transport button:focus-visible, .code li:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.transport #bPlay { background: var(--bit1); color: var(--bit1-ink); font-weight: 700; min-width: 72px; }
+.transport input[type=range] { flex: 1 1 240px; min-width: 160px; accent-color: var(--accent); }
+.transport output { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.transport .keys { color: var(--dim); font-size: 12px; white-space: nowrap; }
+@media (max-width: 1199px) { .transport .keys { display: none; } }
+
+.explain {
+  background: var(--panel); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px;
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 4px 28px;
+}
+.tag { display: block; font-size: 12px; color: var(--dim); }
+.explain code { font-family: var(--mono); font-size: 16px; font-weight: 700; white-space: pre-wrap; overflow-wrap: anywhere; }
+.explain .lineno { font-size: 13px; color: var(--accent-ink); font-weight: 700; margin-right: 10px; white-space: nowrap; }
+.explain p { margin: 0; font-size: 15px; }
+.explain .meta { margin-top: 4px; font-size: 12px; color: var(--dim); }
+.explain .delta { font-family: var(--mono); color: var(--accent-ink); font-weight: 700; }
+
+.grid { display: grid; gap: 14px; align-items: start; grid-template-columns: minmax(0, 1fr); grid-template-areas: "circuit" "regs" "source"; }
+@media (min-width: 1000px) {
+  .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-areas: "source circuit" "source regs"; }
+}
+@media (min-width: 1500px) {
+  .grid { grid-template-columns: minmax(0, 30fr) minmax(0, 45fr) minmax(380px, 25fr); grid-template-areas: "source circuit regs"; }
+}
+.panel { background: var(--panel); border-radius: 12px; padding: 12px 14px 14px; min-width: 0; }
+.panel h2 { font-size: 13px; color: var(--dim); margin: 0 0 8px; font-weight: 700; }
+.panel h2 small { font-weight: 400; font-size: 12px; margin-left: 8px; }
+#pSource { grid-area: source; } #pCircuit { grid-area: circuit; } #pRegs { grid-area: regs; }
+
+.code {
+  margin: 0; padding: 0; list-style: none; overflow-x: auto;
+  display: grid; grid-template-columns: minmax(max-content, 1fr);
+  font-family: var(--mono); font-size: clamp(12px, 0.78vw + 0.5px, 13.5px); line-height: 1.5; tab-size: 4;
+}
+@media (min-width: 1000px) {
+  .code { max-height: max(300px, calc(100vh - 330px)); overflow-y: auto; }
+  #pSource { position: sticky; top: 62px; }
+}
+.code li { display: flex; white-space: pre; border-radius: 4px; }
+.code .ln { flex: 0 0 2.6em; text-align: right; padding-right: 12px; color: var(--dim); user-select: none; }
+.code .tx { flex: 1 0 auto; padding-right: 10px; }
+.code .cm { color: var(--dim); }
+.code li.run { cursor: pointer; }
+.code li.run .ln { color: var(--fg); font-weight: 700; }
+.code li.run:hover { background: var(--inset); }
+.code li.cur, .code li.cur:hover { background: var(--hl); }
+.code li.cur .ln { color: var(--accent-ink); }
+.code li.at, .code li.at:hover { background: var(--recirc-soft); }
+.code li.at .ln { color: var(--recirc-ink); }
+.hint { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
+
+.regs { border-collapse: separate; border-spacing: 0 3px; font-size: 13px; }
+.regs th, .regs td { padding: 2px 3px; white-space: nowrap; text-align: left; }
+.regs thead th { font-size: 11px; color: var(--dim); font-weight: 400; text-align: center; }
+.regs thead th:first-child, .regs thead th:nth-child(2) { text-align: left; }
+.regs tbody th { font-family: var(--mono); font-weight: 700; padding-left: 8px; border-radius: 6px 0 0 6px; }
+.regs .val { font-family: var(--mono); padding-right: 8px; }
+.regs td:last-child { padding-right: 6px; border-radius: 0 6px 6px 0; }
+.regs tr.chg th, .regs tr.chg td { background: var(--accent-soft); }
+.bit {
+  display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center;
+  border-radius: 5px; font-family: var(--mono); font-size: 13px; background: var(--bit0); color: var(--bit0-ink);
+}
+.bit.one { background: var(--bit1); color: var(--bit1-ink); font-weight: 700; }
+.bit.none { background: transparent; color: var(--dim); opacity: .7; }
+.bit.mark { box-shadow: 0 0 0 2px var(--fg); }
+.bit.flip { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bit.mark.flip { outline-offset: 3px; }
+
+/* circuit drawings */
+.cirbox { overflow-x: auto; }
+.cirpart + .cirpart { margin-top: 14px; }
+#cir { display: block; width: 100%; min-width: 480px; height: auto; max-height: 600px; }
+#cir text { font-family: inherit; fill: var(--fg); font-size: 17px; }
+#cir text.big { font-size: 19px; }
+#cir text.small { font-size: 14.5px; }
+#cir text.dim, #cir tspan.dim { fill: var(--dim); }
+#cir text.em { fill: var(--accent-ink); font-weight: 700; }
+#cir .wire path { fill: none; stroke: var(--wire); stroke-width: 2; }
+#cir .wire path.ctl { stroke-dasharray: 4 3; stroke-width: 1.5; }
+#cir .body { fill: var(--inset); stroke: var(--fg); stroke-width: 1.5; }
+#cir .box { fill: var(--panel); stroke: var(--wire); stroke-width: 1; }
+#cir .mod { fill: none; stroke: var(--wire); stroke-width: 1.5; stroke-dasharray: 6 4; }
+#cir .comp { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
+#cir .dot { fill: var(--fg); }
+#cir .plate { stroke: var(--fg); stroke-width: 2.5; }
+#cir .plate.thick { stroke-width: 6; }
+#cir .gate { stroke: var(--wire); stroke-width: 2; }
+#cir .sw .lever { stroke: var(--dim); stroke-width: 3; stroke-linecap: round; transform: rotate(32deg); transition: transform .18s ease; }
+#cir .sw.on .lever { transform: rotate(0deg); stroke: var(--fg); }
+#cir .cur { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+#cir .cur.re { stroke: var(--recirc); }
+#cir .cur.gen { stroke: var(--recirc); stroke-dasharray: 10 8; stroke-width: 4; opacity: .8; }
+#cir .flow { fill: none; stroke: #ffffff; stroke-width: 4.5; stroke-linecap: round; stroke-dasharray: 0.1 52; animation: flow 1.3s linear infinite; }
+#cir .flow.gen { stroke-width: 3; }
+#cir use.ah { fill: var(--fg); }
+@keyframes flow { to { stroke-dashoffset: -52.1; } }
+@media (prefers-reduced-motion: reduce) { #cir .flow { animation: none; } #cir .sw .lever { transition: none; } }
+#cir .led-body { fill: var(--led-off); stroke: var(--fg); stroke-width: 1.5; stroke-linejoin: round; }
+#cir .led-bar { stroke: var(--fg); stroke-width: 3; }
+#cir .halo { fill: var(--led); opacity: 0; }
+#cir[data-lit="1"] .led-body, #cir .ledg.lit .led-body { fill: var(--led); }
+#cir[data-lit="1"] .halo, #cir .ledg.lit .halo { opacity: .3; }
+
+/* keypad and potentiometer */
+#cir.keypad { max-width: 470px; min-width: 300px; }
+#cir.narrow { max-width: 230px; min-width: 0; }
+#cir.buzzer { max-width: 300px; min-width: 0; }
+#cir.servo { max-width: 340px; min-width: 0; }
+#cir.dcmotor { max-width: 440px; min-width: 300px; }
+#cir .wire path.hot { stroke: var(--recirc); stroke-width: 3.5; }
+#cir .key rect { fill: var(--panel); stroke: var(--fg); stroke-width: 1.5; }
+#cir .key text { font-family: var(--mono); font-weight: 700; }
+#cir .key.held rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 3.5; }
+#cir .wiper { fill: var(--fg); stroke: var(--fg); stroke-width: 2; }
+
+/* 7-segment LED */
+#cir .seg { fill: var(--led-off); stroke: var(--wire); stroke-width: 1; }
+#cir .seg.on { fill: var(--seg-on); stroke: var(--seg-on); }
+#cir .seglit { fill: var(--seg-on); stroke: none; }
+#cir .nowdot { fill: var(--led-off); }
+#cir .nowdot.on { fill: var(--accent); }
+#cir.seg7mux { max-width: 640px; }
+
+/* character LCD */
+.lcd { display: inline-block; background: #7fa650; border-radius: 10px; padding: 14px 16px; box-shadow: inset 0 0 0 3px rgba(0, 0, 0, .25); max-width: 100%; overflow-x: auto; }
+.lcd.off { background: #5e6b55; }
+.lcd .row { display: flex; gap: 3px; }
+.lcd .row + .row { margin-top: 4px; }
+.lcd .ch {
+  flex: 0 0 auto; width: 1.3em; height: 1.85em; display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, .1); color: #142208; font-family: var(--mono); font-size: clamp(15px, 1.4vw, 22px); font-weight: 700; border-radius: 2px;
+}
+.lcd .ch.cur { box-shadow: inset 0 -3px 0 #142208; }
+.bus { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.bus .line { display: grid; justify-items: center; gap: 2px; background: var(--inset); border-radius: 8px; padding: 4px 8px; }
+.bus .line b { font-size: 12px; }
+.bus .line small { font-size: 11px; color: var(--dim); }
+.lcdlog { margin: 10px 0 0; padding-left: 20px; font-size: 13px; color: var(--dim); }
+.lcdlog li.now { color: var(--accent-ink); font-weight: 700; }
+#cir[data-wire="source"] .w-sink, #cir[data-wire="sink"] .w-source { display: none; }
+#cir .motor { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
+#cir .motor.on { fill: var(--accent-soft); }
+#cir .spin { fill: none; stroke: var(--accent-ink); stroke-width: 2.5; stroke-linecap: round; }
+
+/* pins view */
+.pins { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+.pin { background: var(--inset); border-radius: 8px; padding: 6px 9px; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
+.pin b { font-family: var(--mono); }
+.pin .no { color: var(--dim); font-size: 12px; text-align: right; }
+.pin .dir { font-size: 12px; color: var(--dim); }
+.pin .lv { font-family: var(--mono); font-weight: 700; text-align: right; }
+.pin.out .dir { color: var(--fg); }
+.pin.hi { background: var(--accent-soft); }
+.pin.hi .lv { color: var(--accent-ink); }
+.pin.chg { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; margin: 8px 0 0; }
+.status:empty { display: none; }
+.status div { background: var(--inset); border-radius: 8px; padding: 6px 9px; min-width: 0; }
+.status dt { font-size: 11px; color: var(--dim); }
+.status dd { margin: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+.status dd.mono { white-space: pre; font-family: ui-monospace, Consolas, monospace; }
+.status .on { background: var(--accent-soft); }
+.status .on dd { color: var(--accent-ink); }
+.status .re { background: var(--recirc-soft); }
+.status .re dd { color: var(--recirc-ink); }
+.flowtext { margin: 10px 0 0; font-size: 14px; min-height: 3em; }
+.flowtext:empty { min-height: 0; }
+.wave { margin: 10px 0 0; background: var(--inset); border-radius: 8px; padding: 8px 10px 6px; }
+.wave + .wave { margin-top: 6px; }
+.wave .head { margin: 0 0 4px; font-size: 12px; color: var(--dim); }
+.wave svg { display: block; width: 100%; height: 44px; }
+.wave polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.wave .cap { margin: 4px 0 0; font-size: 12px; }
+.assume { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
+
+/* timing diagram */
+.tmpanel { margin-top: 14px; }
+.tmhead { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: flex-end; justify-content: space-between; margin-bottom: 6px; }
+.tmhead h2 { margin: 0; }
+.tmbox { overflow-x: auto; }
+#tm { display: block; cursor: pointer; }
+#tm text { font-family: inherit; }
+#tm .tmlabel { font-family: var(--mono); font-size: 12px; fill: var(--dim); }
+#tm .tmlabel.chg { fill: var(--accent-ink); font-weight: 700; }
+#tm .tmwave { fill: none; stroke: var(--fg); stroke-width: 1.5; }
+#tm .tmhi { fill: var(--bit1); opacity: .22; }
+#tm .tmband path { fill: var(--inset); stroke: var(--fg); stroke-width: 1.2; }
+#tm .tmband text { font-family: var(--mono); font-size: 11px; fill: var(--fg); }
+#tm .tmcur { stroke: var(--accent); stroke-width: 2; }
+#tm .tmwait { stroke: var(--wire); stroke-width: 1; stroke-dasharray: 3 3; }
+#tm .tmin path { fill: var(--recirc); }
+#tm .tmbreak { fill: none; stroke: var(--dim); stroke-width: 1.5; }
+#tm .tmhit { fill: transparent; }
+#tm .tmtick { font-size: 11px; fill: var(--dim); }
+.foot { margin-top: 16px; color: var(--dim); font-size: 12px; }
+.foot ul { margin: 0; padding-left: 18px; }
+.foot li { margin: 2px 0; }
+@media (max-width: 560px) { .explain { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1 id="title">PIC viewer</h1>
+      <p class="sub" id="subtitle"></p>
+    </div>
+    <div class="choices" id="choices">
+      <fieldset class="seg" id="targetSeg">
+        <legend>マイコン</legend>
+        <div class="opts" id="targetOpts"></div>
+      </fieldset>
+    </div>
+  </header>
+
+  <section class="transport" aria-label="ステップ操作">
+    <div class="buttons">
+      <button type="button" id="bFirst">最初</button>
+      <button type="button" id="bPrev">前へ</button>
+      <button type="button" id="bPlay" aria-pressed="false">再生</button>
+      <button type="button" id="bNext">次へ</button>
+      <button type="button" id="bLast">最後</button>
+    </div>
+    <input type="range" id="slider" min="0" max="1" step="1" value="0" aria-label="ステップ">
+    <output id="stepLabel" for="slider"></output>
+    <span class="keys">左右キーで前後、スペースキーで再生と停止</span>
+  </section>
+
+  <section class="explain" aria-live="polite">
+    <div>
+      <span class="tag">このステップで実行した行</span>
+      <span class="lineno" id="exNo"></span><code id="exCode"></code>
+    </div>
+    <div>
+      <span class="tag">起きたこと</span>
+      <p id="exNote"></p>
+      <div class="meta"><span id="exDelta"></span></div>
+      <div class="meta" id="exMeta"></div>
+    </div>
+  </section>
+
+  <main class="grid">
+    <section class="panel" id="pSource" aria-label="ソースコード">
+      <h2>ソースコード<small id="srcName"></small></h2>
+      <ol class="code" id="code"></ol>
+      <p class="hint">行番号が濃い行は、記録の中で止まった行。クリックすると、その行を実行した直後のステップへ移る。</p>
+    </section>
+
+    <section class="panel" id="pCircuit" aria-label="回路">
+      <h2><span id="cirTitle">回路</span><small id="cirSub"></small></h2>
+      <div class="cirbox" id="cirBox"></div>
+      <dl class="status" id="cirStatus"></dl>
+      <p class="flowtext" id="cirText"></p>
+      <div id="waveBox" hidden></div>
+      <p class="assume" id="cirAssume"></p>
+    </section>
+
+    <section class="panel" id="pRegs" aria-label="レジスタ">
+      <h2>レジスタ<small>シミュレータで読んだ値</small></h2>
+      <table class="regs">
+        <thead>
+          <tr><th scope="col">名前</th><th scope="col">値</th>
+            <th scope="col">7</th><th scope="col">6</th><th scope="col">5</th><th scope="col">4</th>
+            <th scope="col">3</th><th scope="col">2</th><th scope="col">1</th><th scope="col">0</th></tr>
+        </thead>
+        <tbody id="regBody"></tbody>
+      </table>
+      <p class="hint" id="regHint"></p>
+    </section>
+  </main>
+
+  <section class="panel tmpanel" id="pTiming" aria-label="時間の図">
+    <div class="tmhead">
+      <h2>時間の図<small>値の変わったレジスタの移り変わり</small></h2>
+      <fieldset class="seg">
+        <legend>横軸</legend>
+        <div class="opts">
+          <label><input type="radio" name="tmAxis" value="step" checked><span>ステップごと</span></label>
+          <label><input type="radio" name="tmAxis" value="time"><span>時間に比例</span></label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="tmbox" id="tmBox"></div>
+    <p class="hint" id="tmHint"></p>
+  </section>
+
+  <footer class="foot"><ul id="foot"></ul></footer>
+</div>
+
+<script type="application/json" id="data">{"title":"IN1・IN2 のモータードライバで DC モーター（drive.c）","tool":"picviewer 0.6.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"SW0 を押すと正転、SW1 で逆転、SW2 で半分の速さの正転（IN1 を 5 ms ずつ 1 と 0 にする PWM）。離すと止める","fosc_hz":4000000,"source_name":"drive.c","source":["// drive.c  2 入力のモータードライバ（IN1・IN2）で DC モーターを回す","// SW0 を押している間は正転、SW1 は逆転、SW2 は半分の速さで正転（IN1 を 10 ms ごとに切り替える PWM）","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RC0 = IN1、RC1 = IN2、RA0-RA2 = スイッチ（押すと 0。プルアップ抵抗つき）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","#define IN1 PORTCbits.RC0","#define IN2 PORTCbits.RC1","#define SW0 PORTAbits.RA0","#define SW1 PORTAbits.RA1","#define SW2 PORTAbits.RA2","","void main(void)","{","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;","    TRISA  = 0b11111111;        // スイッチは入力","    TRISC  = 0b11111100;        // RC0、RC1 は出力（IN1、IN2）","    PORTC  = 0b00000000;        // 止めておく","","    while (1) {","        if (SW0 == 0) {             // 正転","            IN1 = 1;","            IN2 = 0;","        } else if (SW1 == 0) {      // 逆転","            IN1 = 0;","            IN2 = 1;","        } else if (SW2 == 0) {      // 半分の速さ: 5 ms 回して 5 ms 空転","            IN2 = 0;","            IN1 = 1;","            __delay_ms(5);","            IN1 = 0;","            __delay_ms(5);","        } else {                    // 離したら止める","            IN1 = 0;","            IN2 = 0;","        }","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISA","mask":255,"bits":["TRISA0","TRISA1","TRISA2","TRISA3","TRISA4","TRISA5","TRISA6","TRISA7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTA","mask":255,"bits":["RA0","RA1","RA2","RA3","RA4","RA5","RA6","RA7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":20,"addr":"0x7a5","cycles":13,"v":[96,31,63,255,255,0,0],"inputs":{"RA0":"high","RA1":"high","RA2":"high"},"input_note":"スイッチは全部離してある","skipped_us":0},{"kind":"step","exec":20,"next":21,"addr":"0x7a9","cycles":17,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":21,"next":22,"addr":"0x7ac","cycles":20,"v":[96,0,63,255,255,7,0],"skipped_us":0},{"kind":"step","exec":22,"next":23,"addr":"0x7ad","cycles":21,"v":[96,0,0,255,255,7,0],"skipped_us":0},{"kind":"step","exec":23,"next":24,"addr":"0x7b1","cycles":25,"v":[96,0,0,255,255,7,0],"skipped_us":0},{"kind":"step","exec":24,"next":25,"addr":"0x7b3","cycles":27,"v":[96,0,0,255,252,7,0],"skipped_us":0},{"kind":"step","exec":25,"next":28,"addr":"0x7b6","cycles":30,"v":[96,0,0,255,252,7,0],"skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":48,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":49,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":69,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":70,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":90,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":91,"v":[96,0,0,255,252,6,0],"watch":"PORTC","inputs":{"RA0":"low"},"input_note":"SW0 を押す","skipped_us":0},{"kind":"write","exec":29,"next":30,"addr":"0x7bd","cycles":100,"v":[96,0,0,255,252,6,1],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":30,"next":31,"addr":"0x7be","cycles":101,"v":[96,0,0,255,252,6,1],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":29,"next":30,"addr":"0x7bd","cycles":110,"v":[96,0,0,255,252,6,1],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":30,"next":31,"addr":"0x7be","cycles":111,"v":[96,0,0,255,252,6,1],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":131,"v":[96,0,0,255,252,7,0],"watch":"PORTC","inputs":{"RA0":"high"},"input_note":"SW0 を離す","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":132,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":152,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":153,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":173,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":174,"v":[96,0,0,255,252,5,0],"watch":"PORTC","inputs":{"RA1":"low"},"input_note":"SW1 を押す","skipped_us":0},{"kind":"write","exec":32,"next":33,"addr":"0x7c4","cycles":188,"v":[96,0,0,255,252,5,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":33,"next":34,"addr":"0x7c5","cycles":189,"v":[96,0,0,255,252,5,2],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":32,"next":33,"addr":"0x7c4","cycles":203,"v":[96,0,0,255,252,5,2],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":33,"next":34,"addr":"0x7c5","cycles":204,"v":[96,0,0,255,252,5,2],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":224,"v":[96,0,0,255,252,7,2],"watch":"PORTC","inputs":{"RA1":"high"},"input_note":"SW1 を離す","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":225,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":245,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":246,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":266,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":267,"v":[96,0,0,255,252,3,0],"watch":"PORTC","inputs":{"RA2":"low"},"input_note":"SW2 を押す","skipped_us":0},{"kind":"write","exec":35,"next":36,"addr":"0x7cb","cycles":286,"v":[96,0,0,255,252,3,0],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":36,"next":37,"addr":"0x7cc","cycles":287,"v":[96,0,0,255,252,3,1],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":38,"next":39,"addr":"0x7e0","cycles":309,"v":[96,0,0,255,252,3,0],"watch":"PORTC","skipped_us":4995},{"kind":"write","exec":35,"next":36,"addr":"0x7cb","cycles":347,"v":[96,0,0,255,252,3,0],"watch":"PORTC","skipped_us":9990},{"kind":"write","exec":36,"next":37,"addr":"0x7cc","cycles":348,"v":[96,0,0,255,252,3,1],"watch":"PORTC","skipped_us":9990},{"kind":"write","exec":38,"next":39,"addr":"0x7e0","cycles":370,"v":[96,0,0,255,252,3,0],"watch":"PORTC","skipped_us":14985},{"kind":"write","exec":35,"next":36,"addr":"0x7cb","cycles":408,"v":[96,0,0,255,252,3,0],"watch":"PORTC","skipped_us":19980},{"kind":"write","exec":36,"next":37,"addr":"0x7cc","cycles":409,"v":[96,0,0,255,252,3,1],"watch":"PORTC","skipped_us":19980},{"kind":"write","exec":38,"next":39,"addr":"0x7e0","cycles":431,"v":[96,0,0,255,252,7,0],"watch":"PORTC","inputs":{"RA2":"high"},"input_note":"SW2 を離す","skipped_us":24975},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":470,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":29970},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":471,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":29970},{"kind":"write","exec":41,"next":42,"addr":"0x7f3","cycles":491,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":29970},{"kind":"write","exec":42,"next":42,"addr":"0x7f4","cycles":492,"v":[96,0,0,255,252,7,0],"watch":"PORTC","skipped_us":29970}],"waves":[],"notes":{"20":"内部発振器を 4 MHz に","21":"アナログ入力を使わない","23":"スイッチは入力","24":"RC0、RC1 は出力（IN1、IN2）","25":"止めておく","28":"正転","31":"逆転","34":"半分の速さ: 5 ms 回して 5 ms 空転","40":"離したら止める","29":"IN1 = 1、IN2 = 0: 正転。","32":"IN1 = 0、IN2 = 1: 逆転。","36":"IN1 を 1 にして 5 ms、0 にして 5 ms。1 の時間が半分なので、モーターは半分ほどの速さで回る（PWM）。"},"circuit":[{"type":"dcmotor","in1":"RC0","in2":"RC1"},{"type":"leds","port":"A","bits":[],"switches":[{"pin":"RA0","active":"low","label":"SW0"},{"pin":"RA1","active":"low","label":"SW1"},{"pin":"RA2","active":"low","label":"SW2"}]}],"counters":[]}]}</script>
+<script>
+window.PicViewer = { circuits: {}, util: {} };
+/* dcmotor: a DC motor on a driver with two inputs, IN1 and IN2 (TA7291P, DRV8833 and the like). IN1 = 1 and
+   IN2 = 0 turns it one way, 0 and 1 the other way, 0 and 0 lets it run down, 1 and 1 brakes: the table of the
+   usual drivers, to be checked against the data sheet of the one used. An input switched fast (software PWM) sets
+   the speed by the share of time it is 1. */
+(() => {
+  'use strict';
+
+  const SPAN = 0.1;          // seconds of recording searched for one PWM cycle
+  const PWM_MAX = 0.05;      // a cycle shorter than this is speed control, not on and off
+  const MX = 300;            // the motor
+  const MY = 204;
+
+  const levelOf = (pin, U) => (R) => {
+    const pb = U.portBit(pin);
+    const v = U.latchOf(R, pb.port);
+    const tris = R['TRIS' + pb.port];
+    return v !== undefined && (tris === undefined || ((tris >> pb.bit) & 1) === 0) && ((v >> pb.bit) & 1) ? 1 : 0;
+  };
+  const pinsOf = (cfg) => [String(cfg.in1 || 'RC0').toUpperCase(), String(cfg.in2 || 'RC1').toUpperCase()];
+  const MODES = { '10': ['正転', 1], '01': ['逆転', -1], '00': ['止まっていく（空転）', 0], '11': ['ブレーキ', 0] };
+
+  window.PicViewer.circuits.dcmotor = {
+    title: 'モータードライバと DC モーター',
+    options: [],
+    setup(ctx) {
+      const { t, cfg, box, U } = ctx;
+      const [in1, in2] = pinsOf(cfg);
+      const svg = U.svgEl('svg', { id: 'cir', class: 'dcmotor', viewBox: '0 0 400 290', role: 'img', 'aria-label': `${in1} と ${in2} で動かす DC モーター` });
+      const add = (tag, attrs, text) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; svg.append(e); return e; };
+      const defs = U.svgEl('defs');
+      defs.append(U.svgEl('path', { id: 'ah', d: 'M-6 -6.5 L7 0 L-6 6.5 Z' }));
+      svg.append(defs);
+      const wires = add('g', { class: 'wire' });
+      wires.append(U.svgEl('path', { d: `M60 92 V150 M110 92 V150 M170 190 H210 V${MY - 20} H${MX - 35}`
+        + ` M170 218 H210 V${MY + 20} H${MX - 35}` }));
+      add('g', { id: 'gCur' });
+      add('rect', { class: 'body', x: 20, y: 20, width: 360, height: 72, rx: 6 });
+      add('text', { x: 28, y: 40, class: 'small', 'font-weight': '700' }, t.device);
+      add('rect', { class: 'comp', x: 30, y: 150, width: 140, height: 96, rx: 6 });     // under its labels
+      [[60, in1, 'IN1'], [110, in2, 'IN2']].forEach(([x, pin, role]) => {
+        add('text', { class: 'small', x, y: 66, 'text-anchor': 'middle' }, pin);
+        add('text', { class: 'dim small', x, y: 84, 'text-anchor': 'middle' }, `${U.pinsWith(t, pin).join('、')} 番`);
+        add('circle', { class: 'dot', cx: x, cy: 92, r: 4 });
+        add('text', { class: 'small', x, y: 172, 'text-anchor': 'middle' }, role);
+      });
+      add('text', { class: 'small', x: 82, y: 226, 'text-anchor': 'middle' }, cfg.driver || 'ドライバ');
+      add('text', { class: 'dim small', x: 164, y: 195, 'text-anchor': 'end' }, 'OUT1');
+      add('text', { class: 'dim small', x: 164, y: 223, 'text-anchor': 'end' }, 'OUT2');
+      add('circle', { class: 'motor', id: 'motor', cx: MX, cy: MY, r: 35 });
+      add('text', { class: 'small', x: MX, y: MY + 6, 'text-anchor': 'middle', 'font-weight': '700' }, 'M');
+      add('path', { class: 'spin', id: 'spin', d: '' });
+      add('text', { class: 'dim small', x: MX, y: MY + 60, 'text-anchor': 'middle' }, cfg.motor || 'DC モーター');
+      box.append(svg);
+      const marks = [];
+      [in1, in2].forEach((pin) => { const pb = U.portBit(pin); ['TRIS', 'PORT', 'LAT'].forEach((p) => marks.push({ reg: p + pb.port, bit: pb.bit })); });
+      return {
+        sub: `${in1}（IN1）と ${in2}（IN2）からモータードライバへ`,
+        assume: 'IN1・IN2 の表は一般的なドライバのもの（IN1=1・IN2=0 で正転、0・1 で逆転、0・0 で空転して止まっていく、1・1 でブレーキ）。正転の向きはモーターのつなぎ方で決まる。',
+        regHint: '太い枠のビットが IN1 と IN2 のピン。',
+        marks,
+        foot: ['モーターの動きは IN1・IN2 の値から一般的なドライバの表で読んだもの。速く切り替えている入力は、1 の時間の割合を速さの目安にする。'],
+      };
+    },
+    update(ctx) {
+      const { cfg, box, R, U } = ctx;
+      const svg = box.querySelector('#cir');
+      if (!svg) return {};
+      const [in1, in2] = pinsOf(cfg);
+      const ports = [...new Set([in1, in2].map((p) => U.portBit(p).port))];
+      const missing = ports.filter((p) => U.latchOf(R, p) === undefined);
+      if (missing.length) return { text: `${missing.map((p) => `PORT${p}（または LAT${p}）`).join('と')}を registers に入れるとモーターが描ける。` };
+      const lv = [in1, in2].map((pin) => levelOf(pin, U));
+      // an input switched fast: the share of time it is 1 is the speed
+      const pwm = lv.map((level) => {
+        if (!ctx.instrHz) return null;
+        const p = ctx.pulse(level, SPAN);
+        return p.period !== null && p.period < PWM_MAX && p.duty !== null && p.since <= 2 * p.period ? p : null;
+      });
+      const now = lv.map((level) => level(R));
+      const driven = pwm.findIndex(Boolean);
+      // while one input is switched fast, the motor turns the way that input on its own turns it
+      const key = driven >= 0 ? (driven === 0 ? '10' : '01') : `${now[0]}${now[1]}`;
+      const [mode, dir] = MODES[key];
+      const speed = driven >= 0 ? pwm[driven].duty : dir !== 0 ? 1 : 0;
+      svg.querySelector('#motor').classList.toggle('on', dir !== 0);
+      svg.querySelector('#spin').setAttribute('d', dir > 0
+        ? `M${MX - 27} ${MY + 22} A36 36 0 0 1 ${MX - 27} ${MY - 22} M${MX - 27} ${MY - 22} l-10 4 M${MX - 27} ${MY - 22} l2 10`
+        : dir < 0 ? `M${MX + 27} ${MY - 22} A36 36 0 0 1 ${MX + 27} ${MY + 22} M${MX + 27} ${MY + 22} l10 -4 M${MX + 27} ${MY + 22} l-2 -10` : '');
+      const g = svg.querySelector('#gCur');
+      g.replaceChildren();
+      if (dir !== 0) {
+        const top = [[170, 190], [210, 190], [210, MY - 20], [MX - 35, MY - 20]];
+        const bottom = [[MX - 35, MY + 20], [210, MY + 20], [210, 218], [170, 218]];
+        // forward: out of OUT1, through the motor, back into OUT2; reverse: the other way round
+        const legs = dir > 0 ? [top, bottom] : [[...bottom].reverse(), [...top].reverse()];
+        legs.forEach((leg) => U.drawPath(g, leg, '', { arrows: false }));
+      }
+      const status = [
+        { label: 'IN1・IN2', value: `${now[0]}・${now[1]}${driven >= 0 ? `（${driven === 0 ? 'IN1' : 'IN2'} を速く切り替え）` : ''}` },
+        { label: 'モーター', value: mode, tone: dir !== 0 ? 'on' : '' },
+      ];
+      if (driven >= 0) status.push({ label: '速さの目安', value: `${Math.round(speed * 100)} %` });
+      const text = driven >= 0
+        ? `${driven === 0 ? 'IN1' : 'IN2'} を ${ctx.fmtTime(pwm[driven].period)} ごとに切り替え、1 の時間は ${Math.round(speed * 100)} %。`
+          + `モーターは${mode}で、速さはその割合ほど（PWM）。`
+        : `IN1 = ${now[0]}、IN2 = ${now[1]} なので、モーターは${mode}。`;
+      return { status, text, probe: { in1: now[0], in2: now[1], mode, speed } };
+    },
+  };
+})();
+
+/* leds: push switches on input pins and one LED (with its resistor) on each pin of a port.
+   Each switch is either to the supply with a pull-down (active "high": pressed reads 1)
+   or to GND with a pull-up (active "low": pressed reads 0). names gives an LED the name the program uses for it.
+   An LED switched on and off faster than the eye follows (software PWM) is drawn as bright as the share of the
+   time it is on, measured over its last full cycle in the recorded stops. */
+(() => {
+  'use strict';
+
+  const X0 = 70;         // x of the first column
+  const SW_DX = 74;      // width of a switch column
+  const LED_DX = 62;     // width of an LED column
+  const RAIL = 300;      // y of the GND rail
+  const NODE = 172;      // y where a switch, its resistor and the pin meet
+  const SPAN = 0.1;      // seconds of recording searched for one on-off cycle
+  const PWM_MAX = 0.05;  // a cycle shorter than this (over 20 Hz) is seen as brightness, not as blinking
+
+  function ledColumns(t, cfg) {
+    const port = String(cfg.port || 'C').toUpperCase();
+    if (Array.isArray(cfg.bits)) return { port, bits: cfg.bits.map(Number) };     // [] draws the switches only
+    const tris = t.regs.find((r) => r.name === 'TRIS' + port);
+    const bits = [];
+    for (let b = 7; b >= 0; b--) if (!tris || (tris.mask >> b) & 1) bits.push(b);
+    return { port, bits };
+  }
+
+  function layout(t, cfg, U) {
+    const { port, bits } = ledColumns(t, cfg);
+    const sws = U.switchStates(cfg, {});
+    const ledStart = X0 + sws.length * SW_DX + (sws.length ? 16 : 0);
+    const right = ledStart + (bits.length - 1) * LED_DX + 40;
+    return { port, bits, sws, ledStart, right };
+  }
+
+  function drawing(t, cfg, U) {
+    const L = layout(t, cfg, U);
+    const high = cfg.active !== 'low';
+    const vdd = `+${t.vdd || 5}V`;
+    const narrow = !L.bits.length;          // switches only: draw it small instead of across the panel
+    const svg = U.svgEl('svg', { id: 'cir', ...(narrow ? { class: 'narrow' } : {}),
+      viewBox: `0 0 ${narrow ? L.right + 20 : Math.max(L.right + 40, 560)} 340`, role: 'img',
+      'aria-label': narrow ? 'スイッチの回路' : `PORT${L.port} の LED とスイッチの回路` });
+    const add = (tag, attrs, text, parent = svg) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; parent.append(e); return e; };
+    const defs = U.svgEl('defs');
+    defs.append(U.svgEl('path', { id: 'ah', d: 'M-6 -6.5 L7 0 L-6 6.5 Z' }));
+    svg.append(defs);
+    const wires = add('g', { class: 'wire' });
+    const wire = (d) => wires.append(U.svgEl('path', { d }));
+    add('g', { id: 'gCur' });
+    add('rect', { class: 'body', x: X0 - 45, y: 20, width: L.right - X0 + 45, height: 72, rx: 6 });
+    add('text', { x: X0 - 37, y: 40, class: 'small', 'font-weight': '700' }, t.device);
+    const pinLabel = (x, name) => {
+      add('text', { class: 'small', x, y: 66, 'text-anchor': 'middle' }, name);
+      add('text', { class: 'dim small', x, y: 84, 'text-anchor': 'middle' }, `${U.pinsWith(t, name).join('、')} 番`);
+      add('circle', { class: 'dot', cx: x, cy: 92, r: 4 });
+    };
+    wire(`M${X0 - 30} ${RAIL} H${L.right}`);
+    add('text', { class: 'dim small', x: narrow ? X0 - 30 : L.right - 120, y: RAIL + 24 }, narrow ? 'GND' : 'GND (0 V) の線');
+    L.sws.forEach((s, k) => {
+      const x = X0 + k * SW_DX;
+      pinLabel(x, s.pin);
+      add('circle', { class: 'dot', cx: x, cy: NODE, r: 4 });
+      const g = add('g', { class: 'sw', 'data-pin': s.pin });
+      if (s.low) {
+        // pull-up to the supply on the right, switch down to GND
+        wire(`M${x} 92 V${NODE} H${x + 22} V158 M${x + 22} 114 V108 M${x} ${NODE} V198 M${x} 230 V${RAIL}`);
+        add('rect', { class: 'comp', x: x + 15, y: 114, width: 14, height: 44, rx: 2 });
+        add('text', { class: 'dim small', x: x + 22, y: 104, 'text-anchor': 'middle' }, vdd);
+        g.append(U.svgEl('line', { class: 'lever', x1: x, y1: 230, x2: x, y2: 198, style: `transform-origin:${x}px 230px` }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x, cy: 198, r: 3.5 }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x, cy: 230, r: 3.5 }));
+        add('text', { class: 'small', x: x + 10, y: 250 }, s.label);
+      } else {
+        // switch up to the supply on the right, pull-down to GND
+        wire(`M${x} 92 V${NODE} H${x + 22} V150 M${x + 22} 118 V108 M${x} ${NODE} V196 M${x} 240 V${RAIL}`);
+        add('text', { class: 'dim small', x: x + 22, y: 104, 'text-anchor': 'middle' }, vdd);
+        g.append(U.svgEl('line', { class: 'lever', x1: x + 22, y1: 150, x2: x + 22, y2: 118, style: `transform-origin:${x + 22}px 150px` }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x + 22, cy: 118, r: 3.5 }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x + 22, cy: 150, r: 3.5 }));
+        add('rect', { class: 'comp', x: x - 7, y: 196, width: 14, height: 44, rx: 2 });
+        add('text', { class: 'small', x: x + 30, y: 140 }, s.label);
+      }
+    });
+    L.bits.forEach((b, i) => {
+      const cx = L.ledStart + i * LED_DX;
+      pinLabel(cx, `R${L.port}${b}`);
+      wire(`M${cx} 92 V118 M${cx} 162 V188 M${cx} 216 V${RAIL}`);
+      add('rect', { class: 'comp', x: cx - 8, y: 118, width: 16, height: 44, rx: 2 });
+      const g = add('g', { class: 'ledg', 'data-bit': String(b) });
+      add('circle', { class: 'halo', cx, cy: 202, r: 20 }, undefined, g);
+      add('path', { class: 'led-body', d: high ? `M${cx - 13} 190 H${cx + 13} L${cx} 212 Z` : `M${cx - 13} 214 H${cx + 13} L${cx} 192 Z` }, undefined, g);
+      add('line', { class: 'led-bar', x1: cx - 13, x2: cx + 13, y1: high ? 214 : 190, y2: high ? 214 : 190 }, undefined, g);
+      const name = cfg.names && cfg.names[String(b)];
+      if (name) add('text', { class: 'small', x: cx + 7, y: 262 }, String(name));
+    });
+    if (L.bits.length) add('text', { class: 'dim small', x: L.ledStart - 20, y: RAIL + 24 }, `各 LED に抵抗 ${cfg.r_ohm || 330} Ω`);
+    return svg;
+  }
+
+  window.PicViewer.circuits.leds = {
+    title: '回路と電流',
+    options: [],
+    setup(ctx) {
+      const { t, cfg, box, U } = ctx;
+      const L = layout(t, cfg, U);
+      box.append(drawing(t, cfg, U));
+      const high = cfg.active !== 'low';
+      const marks = L.bits.flatMap((b) => ['TRIS', 'PORT', 'LAT'].map((p) => ({ reg: p + L.port, bit: b })));
+      L.sws.forEach((s) => { const pb = U.portBit(s.pin); marks.push({ reg: 'PORT' + pb.port, bit: pb.bit }); });
+      const swText = L.sws.length
+        ? `スイッチ: ${L.sws.map((s) => `${s.label}（${s.pin}、押すと ${s.low ? '0' : '1'}）`).join('、')}。`
+        : '';
+      if (!L.bits.length) {
+        return { sub: 'スイッチのつなぎ方は仮定', assume: swText, regHint: '太い枠のビットがスイッチのピン。', marks,
+          foot: ['スイッチのつなぎ方は仮定。シミュレータはプルアップを持たないので、離したスイッチの値も trace の set で入れる。'] };
+      }
+      return {
+        sub: 'LED と抵抗とスイッチのつなぎ方は仮定',
+        assume: `LED は ${high ? 'ピンが 1 のとき（ピンから抵抗、LED を通って GND へ）' : 'ピンが 0 のとき（電源から LED、抵抗を通ってピンへ）'}点灯する。${swText}`,
+        regHint: `太い枠のビットが LED${L.sws.length ? 'とスイッチ' : ''}のピン。`,
+        marks,
+        foot: ['LED、抵抗、スイッチのつなぎ方は仮定。実際の基板に合わせて circuit の値を直す。シミュレータはプルアップを持たないので、離したスイッチの値も trace の set で入れる。'],
+      };
+    },
+    update(ctx) {
+      const { t, cfg, box, R, U, inputs } = ctx;
+      const svg = box.querySelector('#cir');
+      if (!svg) return {};
+      const L = layout(t, cfg, U);
+      const high = cfg.active !== 'low';
+      const latch = U.latchOf(R, L.port);
+      const tris = R['TRIS' + L.port];
+      if (L.bits.length && (latch === undefined || tris === undefined)) {
+        return { text: `TRIS${L.port} と PORT${L.port}（または LAT${L.port}）を registers に入れると LED が描ける。` };
+      }
+      const g = svg.querySelector('#gCur');
+      g.replaceChildren();
+      const lit = [];
+      const pwm = [];
+      L.bits.forEach((b, i) => {
+        const isOn = (Rx) => {
+          const lt = U.latchOf(Rx, L.port);
+          const tr = Rx['TRIS' + L.port];
+          return lt !== undefined && tr !== undefined && ((tr >> b) & 1) === 0 && ((lt >> b) & 1) === (high ? 1 : 0) ? 1 : 0;
+        };
+        const on = isOn(R) === 1;
+        const led = svg.querySelector(`.ledg[data-bit="${b}"]`);
+        // switched on and off faster than the eye follows: as bright as the share of time it is on
+        const p = ctx.instrHz ? ctx.pulse(isOn, SPAN) : null;
+        const duty = p && p.period !== null && p.period < PWM_MAX && p.duty !== null && p.since <= 2 * p.period ? p.duty : null;
+        led.classList.toggle('lit', on || duty !== null);
+        led.querySelector('.led-body').setAttribute('fill-opacity', duty === null ? '1' : (0.2 + 0.8 * duty).toFixed(3));
+        led.querySelector('.halo').style.opacity = duty === null ? '' : (0.3 * duty).toFixed(3);
+        if (duty !== null) pwm.push({ pin: `R${L.port}${b}`, duty, period: p.period });
+        if (on) {
+          lit.push(`R${L.port}${b}`);
+          const cx = L.ledStart + i * LED_DX;
+          U.drawPath(g, [[cx, 92], [cx, RAIL]], '', { arrows: high ? [[cx, 174, 90], [cx, 258, 90]] : [[cx, 174, -90], [cx, 258, -90]] });
+        }
+      });
+      const sw = U.switchStates(cfg, R, inputs).filter((s) => s.down !== null);
+      sw.forEach((s) => svg.querySelector(`.sw[data-pin="${s.pin}"]`).classList.toggle('on', s.down));
+      const pressedNames = sw.filter((s) => s.down).map((s) => s.label);
+      const known = sw.length;
+      const pattern = L.bits.reduce((acc, b) => acc + (((latch >> b) & 1) ? '1' : '0'), '');
+      const status = L.bits.length ? [
+        { label: `PORT${L.port} の出力`, value: `${U.hex(latch)}（${pattern}）`, tone: lit.length ? 'on' : '' },
+        { label: '点灯', value: `${lit.length} 個`, tone: lit.length ? 'on' : '' },
+      ] : [];
+      if (pwm.length) status.push({ label: '明るさ（点灯の割合）', value: pwm.map((x) => `${x.pin} ${Math.round(x.duty * 100)} %`).join('、'), tone: 'on' });
+      if (known) status.push({ label: '押しているスイッチ', value: pressedNames.join('、') || 'なし', tone: pressedNames.length ? 'on' : '' });
+      const swText = !known ? '' : pressedNames.length ? `押しているスイッチ: ${pressedNames.join('、')}。` : 'スイッチはどれも離してある。';
+      const ledText = (!L.bits.length ? '' : lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。')
+        + pwm.map((x) => `${x.pin} は ${ctx.fmtTime(x.period)} ごとに点けたり消したりしていて、点いている割合は ${Math.round(x.duty * 100)} %。`
+          + '目には点滅ではなく、その割合の明るさで光って見える（PWM）。').join('');
+      return {
+        status,
+        text: ledText + swText + U.mismatchText(sw),
+        probe: { pattern, lit: lit.length, pressed: known ? pressedNames.length > 0 : null, pressedNames,
+          pwm: Object.fromEntries(pwm.map((x) => [x.pin, x.duty])) },
+      };
+    },
+  };
+})();
+
+/* pins: the default view. Direction and value of every port pin, from TRISx and PORTx / LATx. */
+(() => {
+  'use strict';
+
+  function pinNames(t, cfg) {
+    if (Array.isArray(cfg.pins) && cfg.pins.length) return cfg.pins.map((p) => String(p).toUpperCase());
+    const out = [];
+    t.regs.forEach((r) => {
+      const m = /^TRIS([A-Z])$/.exec(r.name);
+      if (!m) return;
+      for (let b = 0; b < 8; b++) if ((r.mask >> b) & 1) out.push(`R${m[1]}${b}`);
+    });
+    return out;
+  }
+
+  window.PicViewer.circuits.pins = {
+    title: 'ピン',
+    options: [],
+    setup(ctx) {
+      const { t, cfg, box, U } = ctx;
+      const names = pinNames(t, cfg).filter((n) => U.portBit(n));
+      if (!names.length) {
+        box.append(U.el('p', 'hint', 'ピンを出すには、TRISx と PORTx（または LATx）を registers に入れる。'));
+        return {};
+      }
+      const grid = U.el('div', 'pins');
+      names.forEach((name) => {
+        const card = U.el('div', 'pin');
+        card.dataset.pin = name;
+        const no = U.pinsWith(t, name);
+        card.append(U.el('b', '', name), U.el('span', 'no', no.length ? `${no.join('、')} 番` : ''),
+          U.el('span', 'dir', ''), U.el('span', 'lv', ''));
+        grid.append(card);
+      });
+      box.append(grid);
+      return {
+        sub: 'TRIS と PORT / LAT から見た、各ピンの向きと値',
+        assume: 'TRIS のビットが 0 なら出力、1 なら入力。値は PORT のビット（PORT を読んでいなければ LAT）。オレンジの枠は直前のステップから変わったピン。',
+      };
+    },
+    update(ctx) {
+      const { box, R, P, U } = ctx;
+      const outs = [];
+      box.querySelectorAll('.pin').forEach((card) => {
+        const pb = U.portBit(card.dataset.pin);
+        const read = (regs, prefix) => (regs && regs[prefix + pb.port] !== undefined ? (regs[prefix + pb.port] >> pb.bit) & 1 : null);
+        const level = (regs) => { const v = read(regs, 'PORT'); return v !== null ? v : read(regs, 'LAT'); };
+        const dir = read(R, 'TRIS');
+        const lv = level(R);
+        card.classList.toggle('out', dir === 0);
+        card.classList.toggle('hi', lv === 1);
+        card.classList.toggle('chg', Boolean(P) && (read(P, 'TRIS') !== dir || level(P) !== lv));
+        card.querySelector('.dir').textContent = dir === null ? '?' : (dir ? '入力' : '出力');
+        card.querySelector('.lv').textContent = lv === null ? '?' : String(lv);
+        if (dir === 0) outs.push(`${card.dataset.pin} = ${lv}`);
+      });
+      return { text: outs.length ? `出力のピン: ${outs.join('、')}` : '出力のピンは無い（すべて入力）。', probe: { outputs: outs } };
+    },
+  };
+})();
+
+/* PIC viewer core: step controls, source, registers and explanation.
+   A circuit view plugs in through PicViewer.circuits[type] = { title, options, setup(ctx), update(ctx) }. */
+(() => {
+  'use strict';
+  const PV = window.PicViewer;
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const NS = 'http://www.w3.org/2000/svg';
+  const PLAY_MS = 1400;
+  const $ = (id) => document.getElementById(id);
+  const S = { t: 0, step: 0, opts: {}, timer: null, probe: null, tmMode: 'step', tm: null };
+
+  // ---------------- helpers, also used by the circuits
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const svgEl = (tag, attrs = {}) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+  };
+  const num = (v, d = 1) => Number(v).toFixed(d);
+  const hex = (v) => '0x' + v.toString(16).toUpperCase().padStart(2, '0');
+  const pinsWith = (t, fn) => {
+    const f = fn.toUpperCase();
+    const out = [];
+    t.pins.forEach((names, i) => { if (names.some((n) => n.toUpperCase() === f)) out.push(i + 1); });
+    return out;
+  };
+  const portBit = (pin) => {
+    const m = /^R([A-Z])(\d)$/i.exec(pin || '');
+    return m ? { port: m[1].toUpperCase(), bit: Number(m[2]) } : null;
+  };
+  // the output latch of a port: LATx when it was read, PORTx otherwise
+  const latchOf = (R, port) => (R['LAT' + port] !== undefined ? R['LAT' + port] : R['PORT' + port]);
+  const levelBit = (v) => (v === 'high' ? 1 : v === 'low' ? 0 : Number.parseFloat(v) >= 2.5 ? 1 : 0);
+  // circuit.switches (or the older single circuit.switch) with each one's state. The level put on the pin
+  // (trace "set") decides whether it is pressed; the PORT bit is what the program reads, which differs while
+  // the pin is still an analog input or an output. Without a set level, the PORT bit is all there is.
+  const switchStates = (cfg, R, inputs = {}) => {
+    const raw = Array.isArray(cfg.switches) ? cfg.switches : cfg.switch ? [cfg.switch] : [];
+    return raw.filter((s) => s && portBit(s.pin)).map((s) => {
+      const pb = portBit(s.pin);
+      const pin = s.pin.toUpperCase();
+      const reg = R['PORT' + pb.port];
+      const read = reg === undefined ? null : (reg >> pb.bit) & 1;
+      const set = inputs[pin] === undefined ? null : levelBit(inputs[pin]);
+      const level = set !== null ? set : read;
+      const low = s.active === 'low';
+      return { pin, label: s.label || pin, low, level, read, down: level === null ? null : level === (low ? 0 : 1),
+        mismatch: set !== null && read !== null && set !== read };
+    });
+  };
+  // switch pins that read differently from their level, in words (empty when they all agree)
+  const mismatchText = (sw) => {
+    const groups = {};
+    sw.filter((s) => s.mismatch).forEach((s) => { (groups[`${s.level}${s.read}`] ||= []).push(s); });
+    return Object.values(groups).map((g) => `${g.map((s) => s.pin).join('、')} はピンが ${g[0].level} なのに、`
+      + `プログラムには ${g[0].read} と読める（アナログ入力のままか、出力にしている）。`).join('');
+  };
+  // a current path: an orange line, moving dots, and arrows (explicit [x, y, angle] or along long segments)
+  function drawPath(g, pts, cls, opt = {}) {
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
+    g.append(svgEl('path', { class: 'cur ' + cls, d }));
+    g.append(svgEl('path', { class: 'flow ' + cls, d }));
+    const arrow = (x, y, ang) => g.append(svgEl('use', { href: '#ah', class: 'ah', transform: `translate(${x} ${y}) rotate(${ang})` }));
+    if (Array.isArray(opt.arrows)) { opt.arrows.forEach(([x, y, a]) => arrow(x, y, a)); return; }
+    if (opt.arrows === false) return;
+    pts.slice(1).forEach((q, i) => {
+      const p = pts[i];
+      if (Math.hypot(q[0] - p[0], q[1] - p[1]) < 70) return;
+      const mx = (p[0] + q[0]) / 2;
+      const my = (p[1] + q[1]) / 2;
+      if ((opt.skip || []).some(([x0, y0, x1, y1]) => mx >= x0 && mx <= x1 && my >= y0 && my <= y1)) return;
+      arrow(mx, my, Math.atan2(q[1] - p[1], q[0] - p[0]) * 180 / Math.PI);
+    });
+  }
+  // 7-segment helpers shared by the seg7 and seg7mux views: names by bit (bit 0 = a), the shapes of digits and a
+  // few letters, and the outline of each segment for a digit w wide and h high at (x, y) with strokes t thick
+  const seg7 = {
+    NAMES: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'],
+    SHAPES: { 0x3f: '0', 0x06: '1', 0x5b: '2', 0x4f: '3', 0x66: '4', 0x6d: '5', 0x7d: '6', 0x07: '7', 0x27: '7',
+      0x7f: '8', 0x6f: '9', 0x67: '9', 0x77: 'A', 0x7c: 'b', 0x39: 'C', 0x58: 'c', 0x5e: 'd', 0x79: 'E', 0x71: 'F',
+      0x76: 'H', 0x38: 'L', 0x54: 'n', 0x08: '_', 0x40: '-', 0x73: 'P', 0x3e: 'U', 0x00: '（消灯）' },
+    paths(x, y, w, h, t) {
+      const hs = (yy) => `M${x + t * 0.67} ${yy} L${x + t * 1.22} ${yy - t / 2} H${x + w - t * 1.22} L${x + w - t * 0.67} ${yy} L${x + w - t * 1.22} ${yy + t / 2} H${x + t * 1.22} Z`;
+      const vs = (xx, y0, y1) => `M${xx} ${y0 + t * 0.67} L${xx + t / 2} ${y0 + t * 1.22} V${y1 - t * 1.22} L${xx} ${y1 - t * 0.67} L${xx - t / 2} ${y1 - t * 1.22} V${y0 + t * 1.22} Z`;
+      return { a: hs(y), g: hs(y + h / 2), d: hs(y + h), f: vs(x, y, y + h / 2), b: vs(x + w, y, y + h / 2),
+        e: vs(x, y + h / 2, y + h), c: vs(x + w, y + h / 2, y + h) };
+    },
+  };
+  // What the recording knows between two stops. The values read at a stop hold until the next one only when the
+  // program could not change the circuit unseen in between: up to a write stop (every write to the watched
+  // registers stops it), a timeout (no write came) or a step. Up to a run_to stop the program ran freely, and
+  // after the end of an until_write the writes were no longer followed: those stretches are unknown.
+  const knownAfter = (t, i) => {
+    const next = t.steps[i + 1];
+    return Boolean(next) && next.kind !== 'run' && next.kind !== 'start' && t.steps[i].kind !== 'end';
+  };
+  // the recorded stretches before step k, newest first, as far back as `span` (seconds, or instruction cycles
+  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut}
+  function history(t, k, span) {
+    const timeOf = (i) => { const s = secondsOf(t, t.steps[i]); return s === null ? t.steps[i].cycles : s; };
+    const end = timeOf(k);
+    const spans = [];
+    let cut = false;
+    for (let i = k - 1; i >= 0; i--) {
+      const b = timeOf(i + 1);
+      if (end - b >= span) break;
+      if (!knownAfter(t, i)) { cut = true; break; }
+      const a = Math.max(timeOf(i), end - span);
+      if (b > a) spans.push({ from: a, to: b, R: regsAt(t, t.steps[i]), i });
+      if (end - timeOf(i) >= span) break;
+    }
+    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end };
+  }
+  // a pin's last full cycle before step k, from its level at each stop (level(R) gives 0 or 1): the time from the
+  // second last rising edge to the last, and how long it was 1 in it. null when it did not go round twice within
+  // `span` of recorded time. `since` is how long ago its level last changed.
+  function pulse(t, k, level, span) {
+    const h = history(t, k, span);
+    // inputs changed by the plan (set, press) change what the program does; in the simulation they come only
+    // a few writes apart, so a cycle must not reach back across one: start from the last change
+    let since = 0;
+    for (let i = k; i > 0; i--) if (t.steps[i].inputs || t.steps[i].key !== undefined) { since = i - 1; break; }
+    const cutAtInput = h.spans.length > 0 && h.spans[h.spans.length - 1].i < since;
+    h.spans = h.spans.filter((s) => s.i >= since);
+    h.cut = h.cut || cutAtInput;
+    const now = level(regsAt(t, t.steps[k]));
+    const seq = [{ at: h.end, v: now }, ...h.spans.map((s) => ({ at: s.from, v: level(s.R) }))];
+    // seq: the level from each moment on, newest first; an edge where the level differs from the one before it
+    const edges = [];
+    for (let j = 0; j + 1 < seq.length; j++) {
+      if (seq[j].v !== seq[j + 1].v) edges.push({ at: h.spans[j].to, rising: seq[j].v === 1 });
+    }
+    const ago = edges.length ? h.end - edges[0].at : null;
+    const rises = edges.filter((e) => e.rising);
+    if (rises.length < 2) return { period: null, high: null, duty: null, since: ago, level: now, cut: h.cut };
+    const [r1, r2] = rises;
+    const fall = edges.find((e) => !e.rising && e.at > r2.at && e.at <= r1.at);
+    const period = r1.at - r2.at;
+    const high = fall ? fall.at - r2.at : null;
+    return { period, high, duty: high === null || period <= 0 ? null : high / period, since: ago, level: now, cut: h.cut };
+  }
+  PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath, seg7 };
+
+  // ---------------- data helpers
+  const tgt = () => D.targets[S.t];
+  const last = () => tgt().steps.length - 1;
+  // a target's circuit is one part or a list of parts, each drawn by the plugin of its type
+  const partsOf = (t) => (Array.isArray(t.circuit) ? t.circuit : [t.circuit]);
+  const pluginOf = (cfg) => PV.circuits[cfg.type] || PV.circuits.pins;
+  const optionsOf = (t) => partsOf(t).flatMap((cfg) => pluginOf(cfg).options || []);
+  const isCounter = (t, name) => t.counters.indexOf(name) >= 0;
+  const instrHz = (t) => (t.fosc_hz ? t.fosc_hz / 4 : null);
+  const bitName = (r, b) => r.bits[b] || `${r.name}<${b}>`;
+  const codeOf = (line) => { const i = line.indexOf('//'); return (i < 0 ? line : line.slice(0, i)).trim(); };
+  const fmtTime = (s) => (s < 1e-3 ? `${num(s * 1e6, 1)} µs` : s < 1 ? `${num(s * 1e3, 3)} ms` : `${num(s, 3)} 秒`);
+
+  // the levels put on input pins up to step k (trace "set"), as the switches really are
+  function inputsAt(t, k) {
+    const out = {};
+    for (let i = 0; i <= k && i < t.steps.length; i++) Object.assign(out, t.steps[i].inputs || {});
+    return out;
+  }
+
+  // the keypad key held at step k (trace "press" and "release"), or ''
+  function keyAt(t, k) {
+    let key = '';
+    for (let i = 0; i <= k && i < t.steps.length; i++) if (t.steps[i].key !== undefined) key = t.steps[i].key;
+    return key;
+  }
+
+  // what the plan changed just before this stop: input levels, a key pressed or released
+  function changeText(st) {
+    const parts = [];
+    if (st.inputs && Object.keys(st.inputs).length) parts.push(`入力を変えた: ${Object.entries(st.inputs).map(([p, v]) => `${p} = ${levelText(v)}`).join('、')}`);
+    if (st.key !== undefined) parts.push(st.key ? `キー ${st.key} を押した` : 'キーを離した');
+    return parts.length ? `${parts.join('、')}${st.input_note ? `（${st.input_note}）` : ''}。` : '';
+  }
+
+  function regsAt(t, step) {
+    const R = {};
+    if (step) t.regs.forEach((r, i) => { R[r.name] = step.v[i]; });
+    return R;
+  }
+
+  function changedBits(t, st, prev) {
+    const out = [];
+    if (!prev) return out;
+    t.regs.forEach((r, i) => {
+      if (isCounter(t, r.name)) return;
+      const diff = (prev.v[i] ^ st.v[i]) & r.mask;
+      for (let b = 7; b >= 0; b--) {
+        if ((diff >> b) & 1) out.push({ name: bitName(r, b), from: (prev.v[i] >> b) & 1, to: (st.v[i] >> b) & 1 });
+      }
+    });
+    return out;
+  }
+
+  // ---------------- one-time and per-target building
+  function buildTargets() {
+    const box = $('targetOpts');
+    box.replaceChildren();
+    D.targets.forEach((t, i) => {
+      const label = el('label');
+      const input = el('input');
+      input.type = 'radio'; input.name = 'target'; input.value = String(i); input.checked = i === S.t;
+      input.addEventListener('change', () => { S.t = i; stop(); buildTarget(); });
+      label.append(input, el('span', '', t.device));
+      box.append(label);
+    });
+  }
+
+  function buildOptions(t) {
+    document.querySelectorAll('#choices .seg.opt').forEach((n) => n.remove());
+    optionsOf(t).forEach((o) => {
+      if (!o.choices.some((ch) => ch.value === S.opts[o.key])) S.opts[o.key] = o.default || o.choices[0].value;
+      const fs = el('fieldset', 'seg opt');
+      fs.append(el('legend', '', o.legend));
+      const box = el('div', 'opts');
+      o.choices.forEach((ch) => {
+        const label = el('label');
+        const input = el('input');
+        input.type = 'radio'; input.name = 'opt-' + o.key; input.value = ch.value; input.checked = S.opts[o.key] === ch.value;
+        input.addEventListener('change', () => { S.opts[o.key] = ch.value; update(); });
+        label.append(input, el('span', '', ch.label));
+        box.append(label);
+      });
+      fs.append(box);
+      $('choices').append(fs);
+    });
+  }
+
+  function buildSource(t) {
+    const ran = new Set(t.steps.map((s) => s.exec).filter((n) => n !== null));
+    const code = $('code');
+    code.replaceChildren();
+    t.source.forEach((line, i) => {
+      const no = i + 1;
+      const li = el('li');
+      li.dataset.line = String(no);
+      const tx = el('span', 'tx');
+      const cut = line.indexOf('//');
+      if (cut < 0) tx.textContent = line;
+      else tx.append(line.slice(0, cut), el('span', 'cm', line.slice(cut)));
+      li.append(el('span', 'ln', String(no)), tx);
+      if (ran.has(no)) {
+        li.classList.add('run');
+        li.tabIndex = 0;
+        const jump = () => { stop(); setStep(t.steps.findIndex((s) => s.exec === no)); };
+        li.addEventListener('click', jump);
+        li.addEventListener('keydown', (e) => { if (e.key === 'Enter') { jump(); e.preventDefault(); } });
+      }
+      code.append(li);
+    });
+  }
+
+  function buildRegs(t, marks) {
+    const body = $('regBody');
+    body.replaceChildren();
+    t.regs.forEach((r) => {
+      const tr = el('tr');
+      const th = el('th', '', r.name);
+      th.scope = 'row';
+      tr.append(th, el('td', 'val'));
+      for (let b = 7; b >= 0; b--) {
+        const td = el('td');
+        const bit = el('span', 'bit');
+        if (!((r.mask >> b) & 1)) { bit.classList.add('none'); bit.textContent = '-'; bit.title = `${r.name} のビット ${b} は無い`; }
+        else bit.title = `${bitName(r, b)}（ビット ${b}）`;
+        if (marks.some((m) => m.reg === r.name && m.bit === b)) bit.classList.add('mark');
+        td.append(bit);
+        tr.append(td);
+      }
+      body.append(tr);
+    });
+  }
+
+  function buildFoot(t, extra) {
+    const hz = instrHz(t);
+    const lines = [
+      `レジスタの値と実行の順番は、MPLAB X ${t.tools.mplabx || ''} のシミュレータ（mdb）で ${t.source_name} を実行して読んだ値（コンパイラ XC8 ${t.tools.xc8 || ''}、記録 ${t.traced}）。`,
+      `ピン番号とビットの有無は Microchip のデバイス定義ファイル（${t.pack.name} ${t.pack.version}）から。`,
+      hz ? `時間は命令サイクル数を 1 秒あたり ${hz / 1e6} M 命令（Fosc ${t.fosc_hz / 1e6} MHz の 4 分の 1）で割った値。` : '',
+      t.fast_forward ? `早送り: __delay_ms の待ちを 1/${t.fast_forward} に縮めた版をシミュレータで動かし、縮めた時間はプログラムの中で数えて足している。命令サイクル数は縮めた後の値。` : '',
+      ...extra,
+      `作成: ${D.tool}`,
+    ].filter(Boolean);
+    $('foot').replaceChildren(...lines.map((s) => el('li', '', s)));
+  }
+
+  function ctxBase(t) {
+    return { t, opts: S.opts, U: PV.util };
+  }
+
+  function buildTarget() {
+    const t = tgt();
+    S.step = Math.min(S.step, last());
+    $('slider').max = String(last());
+    $('srcName').textContent = t.source_name;
+    $('subtitle').textContent = t.summary
+      ? `${t.device}: ${t.summary}`
+      : `${t.device} の ${t.source_name} を MPLAB X のシミュレータで実行した記録。`;
+    buildSource(t);
+    buildOptions(t);
+    const parts = partsOf(t);
+    const box = $('cirBox');
+    box.replaceChildren();
+    const infos = parts.map((cfg) => {
+      const part = el('div', 'cirpart');
+      box.append(part);
+      return pluginOf(cfg).setup({ ...ctxBase(t), cfg, box: part }) || {};
+    });
+    const joined = (key, sep) => infos.map((i) => i[key]).filter(Boolean).join(sep);
+    $('cirTitle').textContent = [...new Set(parts.map((cfg) => pluginOf(cfg).title || '回路'))].join('、');
+    buildRegs(t, infos.flatMap((i) => i.marks || []));
+    $('cirSub').textContent = joined('sub', '。');
+    $('cirAssume').textContent = joined('assume', ' ');
+    const counterHint = t.counters.length ? `${t.counters.join('、')} は数え続けるカウンタなので、変化の印を付けない。` : '';
+    $('regHint').textContent = ['オレンジの枠は直前のステップから変わったビット。- はそのマイコンに無いビット。', joined('regHint', ' '), counterHint]
+      .filter(Boolean).join(' ');
+    buildFoot(t, infos.flatMap((i) => i.foot || []));
+    buildTiming(t);
+    update();
+  }
+
+  // seconds since reset; with fast_forward, the waits cut from __delay_ms are added back
+  const secondsOf = (t, st) => {
+    const hz = instrHz(t);
+    return hz ? st.cycles / hz + (st.skipped_us || 0) / 1e6 : null;
+  };
+  const levelText = (v) => (v === 'high' ? '1' : v === 'low' ? '0' : v);
+
+  // ---------------- per-step painting
+  function explain(t, st, prev) {
+    const regsChanged = [];
+    if (prev) t.regs.forEach((r, i) => { if (!isCounter(t, r.name) && prev.v[i] !== st.v[i]) regsChanged.push(`${r.name} ${hex(prev.v[i])} から ${hex(st.v[i])}`); });
+    const inputs = changeText(st);
+    if (st.kind === 'timeout') {
+      const ran = st.cycles - (prev ? prev.cycles : 0);
+      const s1 = secondsOf(t, st);
+      const span = s1 === null ? `${ran} サイクル`
+        : `${ran} サイクル、${t.fast_forward ? '縮めた待ちを足すと' : ''}約 ${fmtTime(s1 - (prev ? secondsOf(t, prev) : 0))}`;
+      $('exNo').textContent = '';
+      $('exCode').textContent = `${st.watch} への書き込みなし`;
+      $('exNote').textContent = inputs + `${st.watch} に書かないまま待ったので、シミュレータを止めた（その間 ${span}）。`
+        + (st.next ? `止めたときは ${st.next} 行目のあたりを実行していた。`
+          : st.where ? `止めたときは ${st.where}（XC8 に付いてくる関数。割り算などで呼ばれる）の中を実行していた。` : '')
+        + '入力が変わるのを待っているか、書き込みの無い所を回っている。待った長さは止め方で決まる（実機ならスイッチを押すまでの時間）。';
+    } else if (st.exec === null) {
+      $('exNo').textContent = '';
+      $('exCode').textContent = 'まだ無い';
+      $('exNote').textContent = inputs + 'リセット直後。main の最初の行はまだ実行していない。';
+    } else {
+      $('exNo').textContent = `${st.exec} 行目`;
+      $('exCode').textContent = codeOf(t.source[st.exec - 1] || '');
+      const repeat = prev && prev.exec === st.exec && regsChanged.length === 0;
+      const bits = changedBits(t, st, prev);
+      const auto = bits.length ? '変わったビット: ' + bits.map((b) => `${b.name} が ${b.from} から ${b.to}`).join('、') : 'レジスタの変化は無い。';
+      let note;
+      if (st.kind === 'end') note = t.notes[String(st.exec)] || `${st.exec} 行目に来たので、${st.watch} への書き込みを追うのを終える。`;
+      else if (repeat) note = '同じ行をもう一度実行した（ループの中）。レジスタは変わらない。';
+      else note = t.notes[String(st.exec)] ? `${t.notes[String(st.exec)]}${bits.length ? `（${auto}）` : ''}` : auto;
+      if (st.kind === 'write') note = `${st.watch} に書いた所で止めた。` + note;
+      $('exNote').textContent = inputs + note;
+    }
+    $('exDelta').textContent = prev ? (regsChanged.length ? `変わったレジスタ: ${regsChanged.join('、')}` : '変わったレジスタ: なし') : '';
+    $('exDelta').className = regsChanged.length ? 'delta' : '';
+    const sec = secondsOf(t, st);
+    const waited = t.steps.slice(0, S.step + 1).some((s) => s.kind === 'timeout') ? '。書かないまま待った時間を含む' : '';
+    const time = sec === null ? '' : t.fast_forward
+      ? `（早送りで縮めた待ちを足すと ${fmtTime(sec)}${waited}）`
+      : `（${fmtTime(sec)}${waited}）`;
+    const next = st.next === null ? '不明' : `${st.next} 行目`;
+    $('exMeta').textContent = `次に実行する行: ${next}（アドレス ${st.addr}）　リセットからの命令サイクル数: ${st.cycles}${time}`;
+  }
+
+  function paintSource(st) {
+    const code = $('code');
+    code.querySelectorAll('li').forEach((li) => {
+      const no = Number(li.dataset.line);
+      li.classList.toggle('cur', no === st.exec);
+      li.classList.toggle('at', st.kind === 'timeout' && no === st.next);   // where a wait was cut short
+    });
+    const cur = code.querySelector('li.cur') || code.querySelector('li.at');
+    if (cur && code.scrollHeight > code.clientHeight) {   // keep the executed line inside the listing's own scroll box
+      const box = code.getBoundingClientRect();
+      const row = cur.getBoundingClientRect();
+      const margin = row.height * 2;
+      if (row.top < box.top + margin) code.scrollTop -= box.top + margin - row.top;
+      else if (row.bottom > box.bottom - margin) code.scrollTop += row.bottom - (box.bottom - margin);
+    }
+  }
+
+  function paintRegs(t, st, prev) {
+    [...$('regBody').rows].forEach((tr, i) => {
+      const r = t.regs[i];
+      const v = st.v[i];
+      const pv = prev ? prev.v[i] : v;
+      const counter = isCounter(t, r.name);
+      tr.classList.toggle('chg', pv !== v && !counter);
+      tr.cells[1].textContent = hex(v);
+      tr.cells[1].title = pv !== v ? `直前の値は ${hex(pv)}` : '';
+      for (let b = 7; b >= 0; b--) {
+        const bit = tr.cells[2 + (7 - b)].firstChild;
+        if (!((r.mask >> b) & 1)) continue;
+        const one = (v >> b) & 1;
+        bit.textContent = String(one);
+        bit.classList.toggle('one', one === 1);
+        bit.classList.toggle('flip', ((pv ^ v) >> b & 1) === 1 && !counter);
+      }
+    });
+  }
+
+  function paintStatus(list) {
+    $('cirStatus').replaceChildren(...list.map((s) => {
+      const d = el('div', s.tone || '');
+      d.append(el('dt', '', s.label), el('dd', s.mono ? 'mono' : '', s.value));   // mono keeps blank digits in place
+      return d;
+    }));
+  }
+
+  function waveCaption(w, hz) {
+    const range = (a) => (Math.min(...a) === Math.max(...a) ? `${a[0]}` : `${Math.min(...a)}〜${Math.max(...a)}`);
+    const avg = (a) => a.reduce((s, x) => s + x, 0) / a.length;
+    const parts = [];
+    if (w.periods.length) parts.push(`周期 ${range(w.periods)} サイクル` + (hz ? `（約 ${num(hz / avg(w.periods) / 1000)} kHz）` : ''));
+    if (w.highs.length) parts.push(`H の長さ ${range(w.highs)} サイクル`);
+    if (w.periods.length && w.highs.length) parts.push(`デューティ 約 ${Math.round((avg(w.highs) / avg(w.periods)) * 100)} %`);
+    else parts.push(`この間ずっと ${w.edges[0][1] ? 'H' : 'L'}` );
+    return parts.join('、') + '。1 命令は 1〜2 サイクルなので、変わり目の位置は 1〜2 サイクルずれうる。';
+  }
+
+  function paintWaves(t, st) {
+    const box = $('waveBox');
+    const list = (t.waves || []).filter((w) => w.at === st.next);
+    box.hidden = list.length === 0;
+    box.replaceChildren();
+    const hz = instrHz(t);
+    list.forEach((w) => {
+      const W = 600, H = 40, hi = 5, lo = H - 5;
+      const span = Math.max(1, w.end - w.start);
+      const x = (c) => (((c - w.start) / span) * W).toFixed(1);
+      const pts = [];
+      w.edges.forEach(([c, lv], i) => {
+        if (i > 0) pts.push(`${x(c)},${w.edges[i - 1][1] ? hi : lo}`);
+        pts.push(`${x(c)},${lv ? hi : lo}`);
+      });
+      pts.push(`${W},${w.edges[w.edges.length - 1][1] ? hi : lo}`);
+      const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `${w.pin} の波形` });
+      svg.append(svgEl('polyline', { points: pts.join(' ') }));
+      const card = el('div', 'wave');
+      card.append(el('p', 'head', `${w.pin} の実際の波形: シミュレータで ${w.at} 行目に止めてから ${w.samples} 命令、1 命令ずつピンを読んだ（${w.end - w.start} サイクル分）`),
+        svg, el('p', 'cap', waveCaption(w, hz)));
+      box.append(card);
+    });
+  }
+
+  // ---------------- timing diagram: the registers that change somewhere in the record.
+  // Port pins get one row per bit that changes; other registers one band with the value in hex.
+  const TM = { LW: 112, RH: 22, TOP: 30, FOOT: 26, MIN_DX: 9, MAX_ROWS: 40 };
+  const PIN_REG = /^(PORT|LAT)[A-Z]$/;
+
+  function timingRows(t) {
+    const bits = [];
+    const bands = [];
+    t.regs.forEach((r, i) => {
+      if (isCounter(t, r.name)) return;
+      const vals = t.steps.map((s) => s.v[i] & r.mask);
+      if (vals.every((v) => v === vals[0])) return;
+      if (!PIN_REG.test(r.name)) { bands.push({ band: true, i, name: r.name, reg: r.name }); return; }
+      for (let b = 7; b >= 0; b--) {
+        if ((r.mask >> b) & 1 && vals.some((v) => ((v ^ vals[0]) >> b) & 1)) bits.push({ band: false, i, b, name: bitName(r, b), reg: r.name });
+      }
+    });
+    return [...bits, ...bands];
+  }
+
+  // x of every step. 'step': evenly spaced. 'time': in proportion to time, except two kinds of gap that
+  // are drawn as a break of fixed length: a gap next to a cut-short wait (its length is only how long we
+  // waited), and a gap longer than three times the 90th percentile of the other gaps.
+  function timingXs(t, width, mode) {
+    const n = t.steps.length;
+    const even = () => ({ xs: t.steps.map((_, k) => (n > 1 ? (k * width) / (n - 1) : 0)), breaks: [] });
+    if (mode !== 'time' || n < 2) return even();
+    const at = t.steps.map((s) => (instrHz(t) ? secondsOf(t, s) : s.cycles));
+    const gaps = at.slice(1).map((v, k) => v - at[k]);
+    const waits = gaps.map((_, k) => t.steps[k].kind === 'timeout' || t.steps[k + 1].kind === 'timeout');
+    const pos = gaps.filter((g, k) => g > 0 && !waits[k]).sort((a, b) => a - b);
+    if (!pos.length) return even();
+    const cap = pos[Math.floor((pos.length - 1) * 0.9)] * 3;
+    const cut = gaps.map((g, k) => waits[k] || g > cap);
+    const used = gaps.map((g, k) => (cut[k] ? cap : g));
+    const total = used.reduce((s, g) => s + g, 0);
+    const xs = [0];
+    const breaks = [];
+    used.forEach((g, k) => {
+      xs.push(xs[k] + (g / total) * width);
+      if (cut[k]) breaks.push({ x: (xs[k] + xs[k + 1]) / 2, real: gaps[k] });
+    });
+    return { xs, breaks };
+  }
+
+  function buildTiming(t) {
+    const box = $('tmBox');
+    box.replaceChildren();
+    const rows = timingRows(t).slice(0, TM.MAX_ROWS);
+    const n = t.steps.length;
+    S.tm = null;
+    if (!rows.length || n < 2) {
+      $('tmHint').textContent = 'この記録の中で値の変わったレジスタが無い。';
+      return;
+    }
+    const avail = Math.max(240, box.clientWidth - TM.LW - 28);
+    const width = S.tmMode === 'time' ? avail : Math.max(avail, (n - 1) * TM.MIN_DX);
+    const { xs, breaks } = timingXs(t, width, S.tmMode);
+    const X = (k) => TM.LW + 8 + xs[k];
+    const H = TM.TOP + rows.length * TM.RH + TM.FOOT;
+    const svg = svgEl('svg', { id: 'tm', width: String(TM.LW + width + 24), height: String(H), role: 'img',
+      'aria-label': `値の変わった ${rows.length} 行を、ステップ 0 から ${n - 1} まで並べた図` });
+    const add = (tag, attrs, text, parent = svg) => { const e = svgEl(tag, attrs); if (text !== undefined) e.textContent = text; parent.append(e); return e; };
+    // input changes and cut-short waits along the top
+    t.steps.forEach((st, k) => {
+      if (st.kind === 'timeout') add('line', { class: 'tmwait', x1: X(k), x2: X(k), y1: TM.TOP - 6, y2: H - TM.FOOT });
+      const change = changeText(st);
+      if (change) {
+        const g = add('g', { class: 'tmin' });
+        add('path', { d: `M${X(k) - 5} ${TM.TOP - 16} H${X(k) + 5} L${X(k)} ${TM.TOP - 7} Z` }, undefined, g);
+        add('title', {}, `ステップ ${k}: ${change}`, g);
+      }
+    });
+    breaks.forEach((bk) => {
+      add('path', { class: 'tmbreak', d: `M${TM.LW + 8 + bk.x - 6} ${TM.TOP - 2} l6 -8 M${TM.LW + 8 + bk.x} ${TM.TOP - 2} l6 -8` });
+      add('title', {}, `ここは ${instrHz(t) ? fmtTime(bk.real) : `${bk.real} サイクル`} を縮めて描いた`,
+        add('rect', { class: 'tmhit', x: TM.LW + 8 + bk.x - 8, y: TM.TOP - 12, width: 18, height: 12 }));
+    });
+    const labels = [];
+    const end = X(n - 1) + 12;
+    rows.forEach((row, r) => {
+      const top = TM.TOP + r * TM.RH;
+      labels.push(add('text', { class: 'tmlabel', x: TM.LW - 4, y: top + TM.RH / 2 + 4, 'text-anchor': 'end' }, row.name));
+      if (row.band) {
+        // one band per run of the same value, with slanted ends where the value changes
+        const val = (k) => t.steps[k].v[row.i];
+        const lo = top + 4;
+        const hi = top + TM.RH - 5;
+        const mid = (lo + hi) / 2;
+        let from = 0;
+        for (let k = 1; k <= n; k++) {
+          if (k < n && val(k) === val(k - 1)) continue;
+          const x0 = X(from);
+          const x1 = k < n ? X(k) : end;
+          const g = add('g', { class: 'tmband' });
+          add('path', { d: x1 - x0 < 8 ? `M${x0} ${lo} V${hi}`
+            : `M${x0} ${mid} L${x0 + 3} ${lo} H${x1 - 3} L${x1} ${mid} L${x1 - 3} ${hi} H${x0 + 3} Z` }, undefined, g);
+          if (x1 - x0 >= 34) add('text', { x: (x0 + x1) / 2, y: mid + 4, 'text-anchor': 'middle' }, hex(val(from)), g);
+          add('title', {}, `${row.reg} = ${hex(val(from))}（ステップ ${from} から）`, g);
+          from = k;
+        }
+        return;
+      }
+      add('title', {}, `${row.reg} のビット ${row.b}`, labels[r]);
+      const yOf = (lv) => (lv ? top + 4 : top + TM.RH - 5);
+      const lv = (k) => (t.steps[k].v[row.i] >> row.b) & 1;
+      let d = `M${X(0)} ${yOf(lv(0))}`;
+      let fill = '';
+      let from = lv(0) ? X(0) : null;
+      for (let k = 1; k < n; k++) {
+        if (lv(k) !== lv(k - 1)) {
+          d += ` H${X(k)} V${yOf(lv(k))}`;
+          if (lv(k)) from = X(k);
+          else { fill += `M${from} ${top + 4} H${X(k)} V${top + TM.RH - 5} H${from} Z `; from = null; }
+        }
+      }
+      d += ` H${end}`;
+      if (from !== null) fill += `M${from} ${top + 4} H${end} V${top + TM.RH - 5} H${from} Z`;
+      if (fill) add('path', { class: 'tmhi', d: fill });
+      add('path', { class: 'tmwave', d });
+    });
+    // step numbers (or times) along the bottom, at least 70 px apart
+    let lastX = -1e9;
+    t.steps.forEach((st, k) => {
+      if (X(k) - lastX < 70 && k !== n - 1) return;
+      if (k === n - 1 && X(k) - lastX < 40) return;
+      lastX = X(k);
+      const sec = secondsOf(t, st);
+      const text = S.tmMode === 'time' && sec !== null ? fmtTime(sec) : String(k);
+      add('text', { class: 'tmtick', x: X(k), y: H - 8, 'text-anchor': k === 0 ? 'start' : k === n - 1 ? 'end' : 'middle' }, text);
+    });
+    const cursor = add('line', { class: 'tmcur', x1: X(0), x2: X(0), y1: TM.TOP - 4, y2: H - TM.FOOT + 2 });
+    svg.addEventListener('click', (e) => {
+      const rect = svg.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (Number(svg.getAttribute('width')) / rect.width);
+      let best = 0;
+      xs.forEach((_, k) => { if (Math.abs(X(k) - x) < Math.abs(X(best) - x)) best = k; });
+      stop();
+      setStep(best);
+    });
+    box.append(svg);
+    S.tm = { rows, X, cursor, labels };
+    const more = timingRows(t).length > rows.length ? `（多いので最初の ${TM.MAX_ROWS} 本だけ）` : '';
+    $('tmHint').textContent = `記録の中で値の変わったレジスタだけを並べた${more}。ポート（PORT、LAT）はビットごとの 0 と 1、ほかのレジスタは値（16 進）の帯。`
+      + '各ステップで止めて読んだ値なので、ステップの間の細かい動きは描いていない。縦の点線は書かないまま待って止めた所、上の三角は入力を変えた所。'
+      + (breaks.length ? '上の二本の斜線は、待った間と長すぎる間を詰めて描いた所（触れると本当の長さが出る）。' : '')
+      + '図をクリックすると、そのステップへ移る。';
+  }
+
+  function paintTiming(t, st, prev) {
+    if (!S.tm) return;
+    const x = S.tm.X(S.step);
+    S.tm.cursor.setAttribute('x1', x);
+    S.tm.cursor.setAttribute('x2', x);
+    S.tm.rows.forEach((row, r) => {
+      const diff = prev ? prev.v[row.i] ^ st.v[row.i] : 0;
+      S.tm.labels[r].classList.toggle('chg', row.band ? diff !== 0 : ((diff >> row.b) & 1) === 1);
+    });
+    const box = $('tmBox');
+    if (box.scrollWidth > box.clientWidth && (x < box.scrollLeft + TM.LW || x > box.scrollLeft + box.clientWidth - 40)) {
+      box.scrollLeft = Math.max(0, x - box.clientWidth / 2);
+    }
+  }
+
+  function update() {
+    const t = tgt();
+    const st = t.steps[S.step];
+    const prev = S.step > 0 ? t.steps[S.step - 1] : null;
+    $('slider').value = String(S.step);
+    $('stepLabel').textContent = `ステップ ${S.step} / ${last()}`;
+    $('bFirst').disabled = $('bPrev').disabled = S.step === 0;
+    $('bNext').disabled = $('bLast').disabled = S.step === last();
+    explain(t, st, prev);
+    paintSource(st);
+    paintRegs(t, st, prev);
+    const base = { ...ctxBase(t), st, prev, k: S.step, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null,
+      inputs: inputsAt(t, S.step), key: keyAt(t, S.step), regsAt: (step) => regsAt(t, step), fmtTime,
+      instrHz: instrHz(t), seconds: secondsOf(t, st),
+      // seconds since reset of any step (instruction cycles when the clock is not known)
+      timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; },
+      // the recorded stretches before this step, and a pin's last full cycle (see history and pulse above)
+      history: (span) => history(t, S.step, span),
+      pulse: (level, span) => pulse(t, S.step, level, span) };
+    const boxes = $('cirBox').children;
+    const results = partsOf(t).map((cfg, i) => pluginOf(cfg).update({ ...base, cfg, box: boxes[i] }) || {});
+    paintStatus(results.flatMap((r) => r.status || []));
+    $('cirText').textContent = results.map((r) => r.text).filter(Boolean).join(' ');
+    // merged for the common one-part case; 'parts' keeps each part's own values where names collide
+    S.probe = results.some((r) => r.probe)
+      ? { ...Object.assign({}, ...results.map((r) => r.probe || {})), parts: results.map((r) => r.probe || null) } : null;
+    paintWaves(t, st);
+    paintTiming(t, st, prev);
+    writeHash(t);
+  }
+
+  // ---------------- state, hash and controls
+  function writeHash(t) {
+    const p = new URLSearchParams({ target: t.id, step: String(S.step) });
+    optionsOf(t).forEach((o) => p.set(o.key, S.opts[o.key]));
+    try { history.replaceState(null, '', '#' + p.toString()); } catch (e) { /* file:// may refuse */ }
+  }
+  function readHash() {
+    const p = new URLSearchParams(location.hash.slice(1));
+    const i = D.targets.findIndex((t) => t.id === p.get('target'));
+    if (i >= 0) S.t = i;
+    const n = Number.parseInt(p.get('step'), 10);
+    if (Number.isFinite(n)) S.step = Math.max(0, n);
+    for (const [k, v] of p.entries()) if (k !== 'target' && k !== 'step') S.opts[k] = v;
+  }
+  function setStep(n) { S.step = Math.max(0, Math.min(last(), n)); update(); }
+  function stop() {
+    if (S.timer) clearInterval(S.timer);
+    S.timer = null;
+    $('bPlay').textContent = '再生';
+    $('bPlay').setAttribute('aria-pressed', 'false');
+  }
+  function play() {
+    if (S.step >= last()) setStep(0);
+    S.timer = setInterval(() => { if (S.step >= last()) stop(); else setStep(S.step + 1); }, PLAY_MS);
+    $('bPlay').textContent = '停止';
+    $('bPlay').setAttribute('aria-pressed', 'true');
+  }
+
+  $('bFirst').addEventListener('click', () => { stop(); setStep(0); });
+  $('bPrev').addEventListener('click', () => { stop(); setStep(S.step - 1); });
+  $('bNext').addEventListener('click', () => { stop(); setStep(S.step + 1); });
+  $('bLast').addEventListener('click', () => { stop(); setStep(last()); });
+  $('bPlay').addEventListener('click', () => { if (S.timer) stop(); else play(); });
+  $('slider').addEventListener('input', (e) => { stop(); setStep(Number(e.target.value)); });
+  document.querySelectorAll('input[name="tmAxis"]').forEach((r) => r.addEventListener('change', () => {
+    S.tmMode = r.value;
+    buildTiming(tgt());
+    update();
+  }));
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { buildTiming(tgt()); update(); }, 200);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;   // the slider and the radios keep their own keys
+    if (e.key === 'ArrowRight') { stop(); setStep(S.step + 1); }
+    else if (e.key === 'ArrowLeft') { stop(); setStep(S.step - 1); }
+    else if (e.key === 'Home') { stop(); setStep(0); }
+    else if (e.key === 'End') { stop(); setStep(last()); }
+    else if (e.key === ' ' && tag !== 'BUTTON' && tag !== 'LI') { if (S.timer) stop(); else play(); }
+    else return;
+    e.preventDefault();
+  });
+
+  // read-only view of the state, for checks run from a browser driver
+  PV.state = () => {
+    const t = tgt();
+    const st = t.steps[S.step];
+    return { target: t.id, step: S.step, last: last(), exec: st.exec, next: st.next, kind: st.kind,
+      opts: { ...S.opts }, playing: Boolean(S.timer), probe: S.probe, key: keyAt(t, S.step),
+      timing: S.tm ? { mode: S.tmMode, rows: S.tm.rows.map((r) => r.name), cursor: Number(S.tm.cursor.getAttribute('x1')),
+        changed: S.tm.rows.filter((_, r) => S.tm.labels[r].classList.contains('chg')).map((row) => row.name) } : null };
+  };
+
+  readHash();
+  document.title = D.title;
+  $('title').textContent = D.title;
+  buildTargets();
+  buildTarget();
+})();
+
+</script>
+</body>
+</html>

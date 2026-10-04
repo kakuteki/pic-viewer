@@ -105,13 +105,12 @@ def ascii_path(path):
     """The path in ASCII only. XC8 cannot open a file whose path has other characters (it receives them
     mangled), so on Windows the short 8.3 name of an existing path is used; None when there is none."""
     path = Path(path)
-    if str(path).isascii():
-        return path
-    if sys.platform == "win32":
-        import ctypes
-        buf = ctypes.create_unicode_buffer(32768)
-        if ctypes.windll.kernel32.GetShortPathNameW(str(path), buf, len(buf)) and buf.value.isascii():
-            return Path(buf.value)
+    if str(path).isascii() or sys.platform != "win32":
+        return path                     # elsewhere a path is bytes, and XC8 opens it as it is
+    import ctypes
+    buf = ctypes.create_unicode_buffer(32768)
+    if ctypes.windll.kernel32.GetShortPathNameW(str(path), buf, len(buf)) and buf.value.isascii():
+        return Path(buf.value)
     return None
 
 

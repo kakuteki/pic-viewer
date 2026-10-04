@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "tool": "picviewer 0.3.0",
+ "tool": "picviewer 0.6.0",
  "target": "pic16f886",
  "device": "PIC16F886",
  "arch": "16xxxx",
@@ -59,13 +59,13 @@
   {"kind": "step", "exec": 25, "next": 26, "addr": "0x7b5", "cycles": 26, "v": [96, 0, 0, 1, 255, 1, 0], "skipped_us": 0},
   {"kind": "step", "exec": 26, "next": 27, "addr": "0x7b6", "cycles": 27, "v": [96, 0, 0, 1, 0, 1, 0], "skipped_us": 0},
   {"kind": "step", "exec": 27, "next": 31, "addr": "0x7c0", "cycles": 46, "v": [96, 0, 0, 1, 0, 1, 63], "skipped_us": 0},
-  {"kind": "timeout", "exec": null, "next": 31, "addr": "0x7c1", "cycles": 5828957, "v": [96, 0, 0, 1, 0, 1, 63], "watch": "PORTC", "skipped_us": 0},
-  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 41368676, "v": [96, 0, 0, 1, 0, 0, 6], "watch": "PORTC", "inputs": {"RB0": "low"}, "input_note": "SW を押す", "skipped_us": 499500},
-  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 41369233, "v": [96, 0, 0, 1, 0, 0, 91], "watch": "PORTC", "skipped_us": 999000},
-  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 41369790, "v": [96, 0, 0, 1, 0, 0, 79], "watch": "PORTC", "skipped_us": 1498500},
-  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 41370347, "v": [96, 0, 0, 1, 0, 0, 102], "watch": "PORTC", "skipped_us": 1998000},
-  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 41370904, "v": [96, 0, 0, 1, 0, 0, 109], "watch": "PORTC", "skipped_us": 2497500},
-  {"kind": "timeout", "exec": null, "next": 31, "addr": "0x7c1", "cycles": 47626102, "v": [96, 0, 0, 1, 0, 1, 109], "watch": "PORTC", "inputs": {"RB0": "high"}, "input_note": "SW を離す", "skipped_us": 2497500}
+  {"kind": "timeout", "exec": null, "next": 31, "addr": "0x7c1", "cycles": 20099732, "v": [96, 0, 0, 1, 0, 1, 63], "watch": "PORTC", "skipped_us": 0},
+  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 30019441, "v": [96, 0, 0, 1, 0, 0, 6], "watch": "PORTC", "inputs": {"RB0": "low"}, "input_note": "SW を押す", "skipped_us": 499500},
+  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 30019998, "v": [96, 0, 0, 1, 0, 0, 91], "watch": "PORTC", "skipped_us": 999000},
+  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 30020555, "v": [96, 0, 0, 1, 0, 0, 79], "watch": "PORTC", "skipped_us": 1498500},
+  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 30021112, "v": [96, 0, 0, 1, 0, 0, 102], "watch": "PORTC", "skipped_us": 1998000},
+  {"kind": "write", "exec": 34, "next": 34, "addr": "0x7f4", "cycles": 30021669, "v": [96, 0, 0, 1, 0, 0, 109], "watch": "PORTC", "skipped_us": 2497500},
+  {"kind": "timeout", "exec": null, "next": 31, "addr": "0x7c1", "cycles": 52170197, "v": [96, 0, 0, 1, 0, 1, 109], "watch": "PORTC", "inputs": {"RB0": "high"}, "input_note": "SW を離す", "skipped_us": 2497500}
  ],
  "waves": [],
  "source": [

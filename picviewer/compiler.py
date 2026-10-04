@@ -42,9 +42,28 @@ def skipped_per_ms(factor):
 
 def compat_source(text):
     """Old HI-TECH C forms XC8 v3 refuses, rewritten on the same line: `void interrupt isr(void)` becomes
-    `void __interrupt() isr(void)` (with low_priority or high_priority kept as the argument)."""
-    return re.subn(r"\bvoid\s+interrupt\s+(?:(low_priority|high_priority)\s+)?([A-Za-z_]\w*)\s*\(",
-                   lambda m: f"void __interrupt({m.group(1) or ''}) {m.group(2)}(", text)
+    `void __interrupt() isr(void)` (low_priority or high_priority, before or after `interrupt`, kept as the
+    argument). Only spaces and tabs are matched, so no line is joined to the next."""
+    prio = r"(?:(low_priority|high_priority)[ \t]+)?"
+    return re.subn(rf"\bvoid[ \t]+{prio}interrupt[ \t]+{prio}([A-Za-z_]\w*)[ \t]*\(",
+                   lambda m: f"void __interrupt({m.group(1) or m.group(2) or ''}) {m.group(3)}(", text)
+
+
+def copy_includes(text, src_dir, dest_dir, seen=None):
+    """Copy what the source takes in with #include "..." (and what that takes in) next to its copy, at the same
+    relative places: for a source folder XC8 cannot be given with -I because its path is not ASCII."""
+    seen = set() if seen is None else seen
+    for rel in re.findall(r'^[ \t]*#[ \t]*include[ \t]*"([^"]+)"', text, re.M):
+        rel = rel.replace("\\", "/")
+        src = (Path(src_dir) / rel).resolve()
+        if src in seen or not src.is_file():
+            continue
+        seen.add(src)
+        dest = Path(dest_dir) / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        body = src.read_text(encoding="utf-8", errors="surrogateescape")
+        dest.write_text(body, encoding="utf-8", errors="surrogateescape", newline="\n")
+        copy_includes(body, src.parent, dest.parent, seen)
 
 
 def compiled_name(target):
@@ -90,6 +109,8 @@ def compile_target(xc8, target, work):
         include = ascii_path(target.source.parent)     # for #include "..." next to the source, when XC8 can open it
         if include:
             extra.append(f"-I{include}")
+        else:
+            copy_includes(text, target.source.parent, sim)
     elf = elf_path(target, work)
     cmd = [str(xc8), f"-mcpu={target.device[3:]}", "-O0", "-o", elf.name, str(require_ascii(source)),
            *extra, *target.xc8_args]

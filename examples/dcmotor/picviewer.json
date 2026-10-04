@@ -1,0 +1,154 @@
+{
+  "title": "IN1・IN2 のモータードライバで DC モーター（drive.c）",
+  "output": "dcmotor_viewer.html",
+  "fast_forward": 1000,
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/drive.c",
+      "fosc_hz": 4000000,
+      "summary": "SW0 を押すと正転、SW1 で逆転、SW2 で半分の速さの正転（IN1 を 5 ms ずつ 1 と 0 にする PWM）。離すと止める",
+      "wait_ms": 20000,
+      "registers": [
+        "OSCCON",
+        "ANSEL",
+        "ANSELH",
+        "TRISA",
+        "TRISC",
+        "PORTA",
+        "PORTC"
+      ],
+      "circuit": [
+        {
+          "type": "dcmotor",
+          "in1": "RC0",
+          "in2": "RC1"
+        },
+        {
+          "type": "leds",
+          "port": "A",
+          "bits": [],
+          "switches": [
+            {
+              "pin": "RA0",
+              "active": "low",
+              "label": "SW0"
+            },
+            {
+              "pin": "RA1",
+              "active": "low",
+              "label": "SW1"
+            },
+            {
+              "pin": "RA2",
+              "active": "low",
+              "label": "SW2"
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "set": {
+            "RA0": 1,
+            "RA1": 1,
+            "RA2": 1
+          },
+          "note": "スイッチは全部離してある"
+        },
+        {
+          "run_to": 20
+        },
+        {
+          "step": 6
+        },
+        {
+          "until_write": "PORTC",
+          "count": 5,
+          "wait_ms": 3000
+        },
+        {
+          "set": {
+            "RA0": 0
+          },
+          "note": "SW0 を押す"
+        },
+        {
+          "until_write": "PORTC",
+          "count": 5,
+          "wait_ms": 3000
+        },
+        {
+          "set": {
+            "RA0": 1
+          },
+          "note": "SW0 を離す"
+        },
+        {
+          "until_write": "PORTC",
+          "count": 5,
+          "wait_ms": 3000
+        },
+        {
+          "set": {
+            "RA1": 0
+          },
+          "note": "SW1 を押す"
+        },
+        {
+          "until_write": "PORTC",
+          "count": 5,
+          "wait_ms": 3000
+        },
+        {
+          "set": {
+            "RA1": 1
+          },
+          "note": "SW1 を離す"
+        },
+        {
+          "until_write": "PORTC",
+          "count": 5,
+          "wait_ms": 3000
+        },
+        {
+          "set": {
+            "RA2": 0
+          },
+          "note": "SW2 を押す"
+        },
+        {
+          "until_write": "PORTC",
+          "count": 9,
+          "wait_ms": 3000
+        },
+        {
+          "set": {
+            "RA2": 1
+          },
+          "note": "SW2 を離す"
+        },
+        {
+          "until_write": "PORTC",
+          "count": 5,
+          "wait_ms": 3000
+        }
+      ],
+      "notes": {
+        "20": "内部発振器を 4 MHz に",
+        "21": "アナログ入力を使わない",
+        "23": "スイッチは入力",
+        "24": "RC0、RC1 は出力（IN1、IN2）",
+        "25": "止めておく",
+        "28": "正転",
+        "31": "逆転",
+        "34": "半分の速さ: 5 ms 回して 5 ms 空転",
+        "40": "離したら止める",
+        "29": "IN1 = 1、IN2 = 0: 正転。",
+        "32": "IN1 = 0、IN2 = 1: 逆転。",
+        "36": "IN1 を 1 にして 5 ms、0 にして 5 ms。1 の時間が半分なので、モーターは半分ほどの速さで回る（PWM）。"
+      }
+    }
+  ]
+}

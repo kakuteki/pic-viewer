@@ -119,7 +119,10 @@
       if (scanned.length) text += `今 0 にしている行は ${scanned.join('、')}。`;
       if (flowing) text += `押したキーがその行と列 ${c.cols[at.col]} をつなぐので、列 ${c.cols[at.col]} が 0 と読める。`;
       else if (zeros.length) text += `0 と読める列: ${zeros.join('、')}。`;
-      else if (key && scanned.length) text += '押したキーの行ではないので、列はどれも 1 のまま。';
+      else if (at && low[at.r]) {
+        // the held key's row is at 0, yet its column reads 1: the stimulus has not followed the row yet
+        text += `押したキーの行は 0 なのに、列 ${c.cols[at.col]} はまだ 1 と読める（刺激がまだ行の変化に追いついていない）。`;
+      } else if (key && scanned.length) text += '押したキーの行ではないので、列はどれも 1 のまま。';
       return {
         status: [
           { label: '押しているキー', value: key || 'なし', tone: key ? 'on' : '' },
