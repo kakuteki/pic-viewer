@@ -626,6 +626,11 @@ class MdbTest(unittest.TestCase):
         self.assertTrue(all(c[-1] == "Stopwatch" for c, s in chunks if s))
         self.assertTrue(all(not any(x in ("Run", "Continue", "Step") for x in c) for c, s in chunks if not s))
         self.assertEqual(_clean(">\x1b[1m> Single breakpoint: @0x10\r\n"), "Single breakpoint: @0x10\n")
+        # the prompt printed in the middle of the halt report of the debugger's other thread (seen in a real log)
+        self.assertEqual(_clean("\tfile:C:/w/sim/a.c>\n"), "\tfile:C:/w/sim/a.c\n")
+        log = ("Stop at\n\taddress:0x7f8\n\tfile:C:/w/sim/a.c>\n\tsource line:42\nPORTC=\n1\n"
+               "Stopwatch cycle count = 5\n")
+        self.assertEqual(parse_records(log, ["PORTC"], "a.c")[0]["line"], 42)      # an old log read again
 
     def test_session_leaves_out_what_would_repeat(self):
         plan = [{"run_to": 13}, {"until_write": "PORTC", "count": 5}, {"set": {"RB0": "high"}, "note": "押す"},
@@ -786,6 +791,8 @@ class BundleTest(unittest.TestCase):
         self.assertEqual([s["kind"] for s in steps], ["start", "timeout", "write", "write"])  # the 2nd wait is dropped
         self.assertEqual((steps[1]["exec"], steps[1]["next"], steps[1]["watch"]), (None, 15, "PORTC"))
         self.assertEqual([s["cycles"] for s in steps], [5, 905, 1845, 1885])
+        # the time spent waiting, the dropped second wait included, so the page can show the clock without it
+        self.assertEqual([s.get("waited_cycles") for s in steps], [None, 900, 1800, 1800])
         self.assertEqual(steps[3]["inputs"], {"RA0": "high"})
         with self.assertRaisesRegex(MdbError, "着かない"):
             make_steps([{"run_to": 13}, {"run_to": 20}], [self.rec(13, 0, 5), self.rec(15, 0, 9, True)], regs)
@@ -886,6 +893,27 @@ class InitTest(unittest.TestCase):
         text, table = self.program(body, before)
         target, _ = guess(text, table, DEVICE_REGS | {"LATC"}, DEVICE_PINS)
         return target, [(s["pin"], s["active"]) for s in target["circuit"].get("switches", [])]
+
+    def test_loops_that_blink_and_constants_from_variables(self):
+        # PORTC = 0 inside the loop is a write too; with an if in the loop the few-writes shortcut does not apply
+        body = ["while (1) {", "    if (n <= 3) {", "        PORTC = 0xFF;", "        __delay_ms(250);",
+                "        PORTC = 0;", "        __delay_ms(250);", "        n++;", "    } else {",
+                "        __delay_ms(2000);", "        n = 0;", "    }", "}"]
+        target, _ = self.switches(body, before="unsigned char n;")
+        self.assertIn({"until_write": "PORTC", "count": 16, "wait_ms": 3000}, target["trace"])
+        target, _ = self.switches(["while (1) {", "    PORTC = 0xFF;", "    __delay_ms(500);", "    PORTC = 0;",
+                                   "    __delay_ms(500);", "}"])
+        self.assertIn({"until_write": "PORTC", "count": 4, "wait_ms": 3000}, target["trace"])    # two values, twice
+        target, _ = self.switches(["a = 0x01;", "while (1) {", "    PORTC = a ^ 0x0F;", "}"], before="unsigned char a;")
+        self.assertIn({"until_write": "PORTC", "count": 2, "wait_ms": 3000}, target["trace"])    # a never changes
+        target, _ = self.switches(["a = 0x01;", "while (1) {", "    PORTC = a;", "    a = a << 1;", "}"],
+                                  before="unsigned char a;")
+        self.assertIn({"until_write": "PORTC", "count": 16, "wait_ms": 3000}, target["trace"])
+        four = ["while (1) {"] + [f"    if (PORTAbits.RA{b} == 1) {{ PORTC = {1 << b}; __delay_ms(50); PORTC = 0; }}"
+                                  for b in range(4)] + ["}"]
+        target, _ = self.switches(four)
+        counts = [a["count"] for a in target["trace"] if "until_write" in a]
+        self.assertEqual(counts[:3], [4, 10, 4])      # idle 4, a press one pass (8 writes) + 2, the release 4
 
     def test_sections_of_the_loop(self):
         body = ["while (1) {",

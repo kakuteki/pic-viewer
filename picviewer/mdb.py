@@ -217,9 +217,11 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
 NOT_MADE = "picviewer: stop {} not made (its until_write had ended)"
 NOT_MADE_RE = re.compile(r"^picviewer: stop (\d+) not made", re.M)
 STOPWATCH_RE = re.compile(r"Stopwatch cycle count = \d+")
-# the prompt of mdb's terminal comes before the next line it prints when commands arrive through a pipe
-PROMPT_RE = re.compile(r"^(?:\x1b\[[0-9;?]*[A-Za-z]|>\s?)+")
+# the prompt of mdb's terminal (">") when commands arrive through a pipe: printed by the thread that reads the
+# commands, it can land anywhere in what the debugger's event thread is printing (`file:C:/w/a.c>` was seen).
+# No line read here needs a ">" (Windows paths cannot have one), so every ">" goes
 ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+PROMPT_RE = re.compile(r"> ?")
 
 
 def skipped_stops(text):
@@ -356,7 +358,7 @@ def parse_records(text, registers, source_name=None):
     values, line, addr, want, file = {}, None, None, None, None
     hit = False
     for raw in text.splitlines():
-        s = raw.strip()
+        s = raw.replace(">", "").strip()          # a prompt mixed into a line (see _clean); older logs kept them
         if not s:
             continue
         if s.startswith("Single breakpoint"):

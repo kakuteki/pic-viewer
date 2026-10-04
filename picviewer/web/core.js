@@ -157,7 +157,8 @@
   const instrHz = (t) => (t.fosc_hz ? t.fosc_hz / 4 : null);
   const bitName = (r, b) => r.bits[b] || `${r.name}<${b}>`;
   const codeOf = (line) => { const i = line.indexOf('//'); return (i < 0 ? line : line.slice(0, i)).trim(); };
-  const fmtTime = (s) => (s < 1e-3 ? `${num(s * 1e6, 1)} µs` : s < 1 ? `${num(s * 1e3, 3)} ms` : `${num(s, 3)} 秒`);
+  const fmtTime = (s) => (s < 1e-3 ? `${num(s * 1e6, 1)} µs` : s < 1 ? `${num(s * 1e3, 3)} ms` : s < 60 ? `${num(s, 3)} 秒`
+    : s < 3600 ? `${Math.floor(s / 60)} 分 ${num(s % 60, 1)} 秒` : `${Math.floor(s / 3600)} 時間 ${Math.floor((s % 3600) / 60)} 分`);
 
   // the levels put on input pins up to step k (trace "set"), as the switches really are
   function inputsAt(t, k) {
@@ -350,6 +351,12 @@
         + (st.next ? `止めたときは ${st.next} 行目のあたりを実行していた。`
           : st.where ? `止めたときは ${st.where}（XC8 に付いてくる関数。割り算などで呼ばれる）の中を実行していた。` : '')
         + '入力が変わるのを待っているか、書き込みの無い所を回っている。待った長さは止め方で決まる（実機ならスイッチを押すまでの時間）。';
+    } else if (st.exec === null && st.kind !== 'start') {
+      // written by code without a line of ours: XC8's own routines (where), or code the compiler added
+      $('exNo').textContent = '';
+      $('exCode').textContent = st.where ? `${st.where} の中` : '行番号の無い所';
+      $('exNote').textContent = inputs + (st.watch ? `${st.watch} に書いた所で止めた。` : '')
+        + (st.where ? `書いたのは ${st.where}（XC8 に付いてくる関数）の中。` : 'ソースの行に当たらない所（コンパイラが足した命令）で止まった。');
     } else if (st.exec === null) {
       $('exNo').textContent = '';
       $('exCode').textContent = 'まだ無い';
@@ -370,10 +377,14 @@
     $('exDelta').textContent = prev ? (regsChanged.length ? `変わったレジスタ: ${regsChanged.join('、')}` : '変わったレジスタ: なし') : '';
     $('exDelta').className = regsChanged.length ? 'delta' : '';
     const sec = secondsOf(t, st);
-    const waited = t.steps.slice(0, S.step + 1).some((s) => s.kind === 'timeout') ? '。書かないまま待った時間を含む' : '';
-    const time = sec === null ? '' : t.fast_forward
-      ? `（早送りで縮めた待ちを足すと ${fmtTime(sec)}${waited}）`
-      : `（${fmtTime(sec)}${waited}）`;
+    // the waits that ran out last as long as the plan waited, not as the program decides: also the clock without
+    const hz = instrHz(t);
+    const waitedSec = hz && st.waited_cycles ? st.waited_cycles / hz + (st.waited_us || 0) / 1e6 : 0;
+    const ff = t.fast_forward ? '早送りで縮めた待ちを足して、' : '';
+    const time = sec === null ? ''
+      : waitedSec > 0 ? `（${ff}書かないまま待った間を除くと ${fmtTime(sec - waitedSec)}。待った ${fmtTime(waitedSec)}も足すと ${fmtTime(sec)}）`
+        : t.steps.slice(0, S.step + 1).some((s) => s.kind === 'timeout') ? `（${ff}${fmtTime(sec)}。書かないまま待った時間を含む）`
+          : t.fast_forward ? `（早送りで縮めた待ちを足すと ${fmtTime(sec)}）` : `（${fmtTime(sec)}）`;
     const next = st.next === null ? '不明' : `${st.next} 行目`;
     $('exMeta').textContent = `次に実行する行: ${next}（アドレス ${st.addr}）　リセットからの命令サイクル数: ${st.cycles}${time}`;
   }

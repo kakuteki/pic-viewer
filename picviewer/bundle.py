@@ -68,12 +68,16 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
 
     A write stop made by Halt after the wait ran out becomes a 'timeout' step (nothing was written);
     a second one in a row within the same until_write is dropped, as it only repeats the first.
+    Every step after such a wait carries waited_cycles (and waited_us, the fast-forward time in it): the time
+    since reset spent waiting for a write that did not come, kept or dropped. Its length is only how long
+    the plan waited (on a board, how long until someone presses), so the page can leave it out of the clock.
     """
     expected = [e for i, e in enumerate(expand_plan(plan)) if i not in skipped]
     if len(records) != len(expected):
         raise MdbError(f"止まった回数 {len(records)} が計画の {len(expected)} 回と合わない")
     cycles = absolute_cycles(records, [e["kind"] for e in expected])
     steps, ended, carry, last_kind = [], set(), {}, {}
+    waited_cycles, waited_ms, prev_cyc, prev_ms = 0, 0, 0, 0
     here = None                      # the line the program was at after the previous stop, kept or dropped
     values = None                    # the register values read at that stop
     for i, (e, rec, cyc) in enumerate(zip(expected, records, cycles)):
@@ -84,6 +88,11 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
             next_line = line_of(int(rec["addr"], 16))     # code the compiler added inside the program
         before, here = here, next_line
         before_values, values = values, rec["values"]
+        ms = rec["values"].get(delay_var, 0) & 0xFFFFFFFF if delay_var else 0
+        if timeout and e["kind"] == "write":       # from the stop before to this one, nothing but waiting
+            waited_cycles += cyc - prev_cyc
+            waited_ms += ms - prev_ms
+        prev_cyc, prev_ms = cyc, ms
         if e["kind"] == "write" and (e["segment"] in ended or (timeout and last_kind.get(e["segment"]) == "timeout")):
             carry.update({k: e[k] for k in ("inputs", "input_note", "key") if k in e})   # dropped stop: keep its inputs
             continue
@@ -139,6 +148,10 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
             step["key"] = inputs["key"]
         if delay_var and delay_var in rec["values"]:
             step["skipped_us"] = (rec["values"][delay_var] & 0xFFFFFFFF) * us_per_ms
+        if waited_cycles:
+            step["waited_cycles"] = waited_cycles
+            if waited_ms:
+                step["waited_us"] = waited_ms * us_per_ms
         steps.append(step)
     return steps
 

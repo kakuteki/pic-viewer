@@ -338,7 +338,8 @@ def loop_shape(code, aliases):
     def line_of(i):
         return bisect_right(starts, i)
 
-    shape = {"loop": None, "sections": [], "ifs": [], "isr": None, "fors": [], "waits": {}, "functions": []}
+    shape = {"loop": None, "sections": [], "ifs": [], "isr": None, "fors": [], "waits": {}, "functions": [],
+             "straight": False, "changed": set()}
     for f in re.finditer(r"\bif\s*\(", text):
         close = closing(text, f.end() - 1)
         bs, be = statement_at(text, close + 1)
@@ -401,6 +402,14 @@ def loop_shape(code, aliases):
     shape["loop"] = (line_of(s), line_of(e))
     shape["text"], shape["loop_span"] = text, (s, e)
     body = text.find("{", s)
+    shape["straight"] = 0 <= body < e and not any(k for k, _, _ in statements_in(text, body, closing(text, body)))
+    # names given a value inside the loop or in another function (an interrupt, a function the loop calls)
+    elsewhere = text[s:e + 1] + "".join(text[starts[a - 1]:starts[b - 1] if b < len(starts) else len(text)]
+                                        for a, b in shape["functions"] if not (a <= shape["loop"][0] <= b))
+    assigned = re.findall(r"\b([A-Za-z_]\w*)\s*(?:[-+*/%&|^]|<<|>>)?=(?!=)", elsewhere)
+    stepped = [n for pair in re.findall(r"\b([A-Za-z_]\w*)\s*(?:\+\+|--)|(?:\+\+|--)\s*([A-Za-z_]\w*)", elsewhere)
+               for n in pair if n]
+    shape["changed"] = set(assigned) | set(stepped)
     if 0 <= body < e:
         shape["sections"] = [(line_of(bs), line_of(be)) for k, bs, be in statements_in(text, body, closing(text, body))
                              if k in ("while", "for", "do")]
@@ -419,7 +428,7 @@ def analyze(text):
             "int_edge": None, "line_writes": {}, "line_bits": {}, "whole_writes": Counter(), "const_lines": set(),
             "tris_line": {}, "delays_us": {}, "combos": [], "counted": set(), "shape": None, "isr_writes": Counter(),
             "test_lines": {}, "bit_targets": set(), "port_consts": {}, "events": [], "digit_pins": set(),
-            "digit_place": {}, "digit_ports": {}}
+            "digit_place": {}, "digit_ports": {}, "zero_writes": [], "write_rhs": {}}
     joined = "\n".join(code)
     m = re.search(r"#\s*define\s+_XTAL_FREQ\s+(\w+)", joined)
     if m:
@@ -489,10 +498,16 @@ def analyze(text):
             if const and m.group(3) == "=":
                 info["port_consts"].setdefault(reg, set()).add(c_int(const.group(1)))
             if re.fullmatch(r"\(?\s*(?:0+|0[xX]0+|0[bB]0+)\s*\)?", value):
-                continue        # clearing a port at start-up says nothing about what is on it
+                # clearing a port says nothing about what is on it (no vote for the LED port), but it is a write of
+                # its line all the same (PORTC = 0 to switch LEDs off inside the loop)
+                here[reg] += 1
+                info["const_lines"].add(no)
+                info["zero_writes"].append((no, reg))
+                continue
             info["writes"][reg] += 1
             info["whole_writes"][reg] += 1
             here[reg] += 1
+            info["write_rhs"].setdefault(no, []).append(value)
             if const:
                 info["const_lines"].add(no)
             table = m.group(3) == "=" and ("[" in value or re.search(r"seg", value, re.I) is not None)
@@ -510,6 +525,7 @@ def analyze(text):
             bit = re.fullmatch(r"(?:R|LAT)([A-E])(\d)", m.group(3))
             if bit:
                 info["bit_targets"].add(f"R{bit.group(1)}{bit.group(2)}")
+            info["write_rhs"].setdefault(no, []).append(m.group(4).strip())
             if re.fullmatch(r"\(?\s*(0[xX][0-9a-fA-F]+|0[bB][01]+|\d+)\s*\)?", m.group(4).strip()):
                 info["const_lines"].add(no)
         info["events"] += [(no, *e[1:]) for e in sorted(events, key=lambda e: e[0])]
@@ -856,21 +872,35 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
         else:
             count = writes
             written = [no for no in range(*loop) if any(r in watched for r in info["line_writes"].get(no, {}))] \
-                if loop and not mux else []
-            if written and all(no in info["const_lines"] for no in written):
+                if loop and not mux and info["shape"]["straight"] else []
+
+            def fixed(no):
+                # a literal, or names the program never changes in the loop (nor in other functions), no calls
+                if no in info["const_lines"] and not info["write_rhs"].get(no):
+                    return True
+                for value in info["write_rhs"].get(no, []):
+                    if re.search(r"\w\s*\(", value):
+                        return False
+                    names = set(re.findall(r"\b[A-Za-z_]\w*\b", value))
+                    if names & info["shape"]["changed"] or any(re.match(r"(?:PORT|LAT|TMR|ADRES|CCPR)", n) for n in names):
+                        return False
+                return True
+            if written and all(fixed(no) for no in written):
                 count = max(2, min(writes, 2 * len(written)))    # the same few values over and over
             plan.append({"until_write": watch, "count": count, "wait_ms": wait_ms})
     elif out:
         # enough writes for one pass of the loop (both sides of every if counted) and the change it makes
         each = 40 if mux else max(2, min(per_pass + 2, 40))
+        # before any press and after a release the program shows its idle state: a few writes are enough
+        idle = 40 if mux else min(each, 4)
         if not info["wait_loop"]:
-            plan.append({"until_write": watch, "count": each, "wait_ms": wait_ms})
+            plan.append({"until_write": watch, "count": idle, "wait_ms": wait_ms})
         # on a multiplexed display a round of the digits is 2 writes a digit: 3 rounds after a press, 2 after a release
-        down, up = (24, 16) if mux else (each, each)
+        down, up, again_down = (24, 16, 16) if mux else (each, idle, each)
 
         def press(group, note_on, note_off, again=False):
             plan.append({"set": {s["pin"]: level(s, True) for s in group}, "note": note_on})
-            plan.append({"until_write": watch, "count": up if again else down, "wait_ms": wait_ms})
+            plan.append({"until_write": watch, "count": again_down if again else down, "wait_ms": wait_ms})
             plan.append({"set": {s["pin"]: level(s, False) for s in group}, "note": note_off})
             plan.append({"until_write": watch, "count": up, "wait_ms": wait_ms})
 
@@ -919,12 +949,13 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
             parts.append({"type": "dcmotor", "in1": motor[0], "in2": motor[1]})
         taken = set(roles_of) | set(motor or ())
         if out:
-            whole = any(r[-1] == out for r in info["whole_writes"])
+            whole = any(r[-1] == out for r in info["whole_writes"]) or any(
+                r[-1] == out and loop and loop[0] < no <= loop[1] for no, r in info["zero_writes"])
             bits = sorted({int(p[2]) for p in drive_pins if p[1] == out and p not in taken})
             if whole or bits:
                 led = {"type": "leds", "port": out}
                 if not whole:
-                    led["bits"] = bits
+                    led["bits"] = sorted(bits, reverse=True)      # the highest bit on the left, as in binary
                 # a name that only repeats the bit number (bit0, b3) tells nothing the pin name does not
                 names = {str(b): name_of(f"R{out}{b}") for b in (range(8) if whole else bits)
                          if f"R{out}{b}" in info["names"] and f"R{out}{b}" not in taken
