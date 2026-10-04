@@ -169,9 +169,16 @@
       if (pwm.length) status.push({ label: '明るさ（点灯の割合）', value: pwm.map((x) => `${x.pin} ${Math.round(x.duty * 100)} %`).join('、'), tone: 'on' });
       if (known) status.push({ label: '押しているスイッチ', value: pressedNames.join('、') || 'なし', tone: pressedNames.length ? 'on' : '' });
       const swText = !known ? '' : pressedNames.length ? `押しているスイッチ: ${pressedNames.join('、')}。` : 'スイッチはどれも離してある。';
+      // LEDs switched with the same period and share in one sentence
+      const groups = new Map();
+      pwm.forEach((x) => {
+        const key = `${ctx.fmtTime(x.period)}|${Math.round(x.duty * 100)}`;
+        if (!groups.has(key)) groups.set(key, { period: x.period, duty: x.duty, pins: [] });
+        groups.get(key).pins.push(x.pin);
+      });
       const ledText = (!L.bits.length ? '' : lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。')
-        + pwm.map((x) => `${x.pin} は ${ctx.fmtTime(x.period)} ごとに点けたり消したりしていて、点いている割合は ${Math.round(x.duty * 100)} %。`
-          + '目には点滅ではなく、その割合の明るさで光って見える（PWM）。').join('');
+        + [...groups.values()].map((x) => `${x.pins.join('、')} は ${ctx.fmtTime(x.period)} ごとに点けたり消したりしていて、点いている割合は ${Math.round(x.duty * 100)} %。`).join('')
+        + (pwm.length ? `目には点滅ではなく、その割合の明るさで光って見える（PWM）。` : '');
       return {
         status,
         text: ledText + swText + U.mismatchText(sw),

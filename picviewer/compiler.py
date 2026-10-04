@@ -88,6 +88,21 @@ def require_ascii(path):
     return short
 
 
+def error_lines(log, most=15):
+    """The lines of an XC8 log that say why it failed: each error with the two lines after it (the code and the
+    caret), else the end of the log. Warnings come first in the log and would push the error out of a plain tail."""
+    lines = log.strip().splitlines()
+    picked = []
+    for i, line in enumerate(lines):
+        if re.search(r"\berror\b\s*:", line, re.I):
+            picked.extend(range(i, min(i + 3, len(lines))))
+    picked = list(dict.fromkeys(picked))[:most]
+    if not picked:
+        return "\n".join(lines[-most:])
+    rest = len(lines) - len(picked)
+    return "\n".join(lines[i] for i in picked) + (f"\n（ほかに {rest} 行。全部は build の compile.log）" if rest else "")
+
+
 def compile_target(xc8, target, work):
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
@@ -119,6 +134,5 @@ def compile_target(xc8, target, work):
     log = (r.stdout or "") + (r.stderr or "")
     (work / "compile.log").write_text(log, encoding="utf-8")
     if r.returncode != 0 or not elf.is_file():
-        tail = "\n".join(log.strip().splitlines()[-15:])
-        raise CompileError(f"XC8 が失敗した（終了コード {r.returncode}）:\n{tail}")
+        raise CompileError(f"XC8 が失敗した（終了コード {r.returncode}）:\n{error_lines(log)}")
     return elf

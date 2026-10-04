@@ -265,8 +265,23 @@ def seg7_mux():
     check("mux: after a few frames the eye sees 1234", shown="1234")
     expect("mux: the explanation says the eye sees an average", "平均" in text_of("cirText"), text_of("cirText"))
     goto(runs[0])
-    check("mux: after run_to the writes were not followed, so only this moment is drawn", covered=0)
+    # what is recorded after run_to is the stretch to the next stop, too short for a round: only this moment
+    check("mux: after run_to the writes were not followed, so only this moment is drawn", cut=True)
     expect("mux: and the page says so", "走らせた" in text_of("cirText"), text_of("cirText"))
+    # the first stop after run_to that is averaged again: whole rounds while less than the 20 ms window is recorded
+    first = None
+    for i in range(runs[0] + 1, min(runs[0] + 41, len(steps))):
+        goto(i)
+        p = state().get("probe") or {}
+        if not p.get("cut"):
+            first = (i, p)
+            break
+    expect("mux: a few writes after run_to the display is averaged again", first is not None)
+    if first:
+        i, p = first
+        expect("mux: over whole rounds, as the page says", p["covered"] >= 0.02 or (
+            p["round"] and abs(p["covered"] / p["round"] - round(p["covered"] / p["round"])) < 1e-6
+            and "巡" in text_of("cirText")), (i, p, text_of("cirText")))
     k = next(i for i in range(runs[0] - 1, 0, -1) if steps[i].get("watch") == "PORTA" and steps[i]["v"][5] != 0x0F)
     goto(k)
     check("mux: at a digit switch-on, exactly one digit is on", now=[[0x0E, 0x0D, 0x0B, 0x07].index(steps[k]["v"][5])])
@@ -323,6 +338,29 @@ def dcmotor():
     check("dcmotor: released, it runs down", mode="止まっていく（空転）")
 
 
+def seg7_mux_count():
+    steps = steps_of("seg7_mux_count")
+    runs = [i for i, s in enumerate(steps) if s["kind"] == "run"]
+    open_page("examples/seg7_mux_count/seg7_mux_count_viewer.html")
+    goto(runs[0] - 1)
+    check("count: before the first jump the display reads 00", shown="00")
+    seen = []
+    for n, r in enumerate(runs):
+        goto(r)
+        check(f"count: jump {n + 1} stops where the count goes up, only this moment drawn", cut=True)
+        end = runs[n + 1] - 1 if n + 1 < len(runs) else len(steps) - 1
+        goto(end)
+        seen.append(state()["probe"]["shown"])
+    expect("count: the jumps show 01, 02, 03 and then 10", seen == ["01", "02", "03", "10"], seen)
+    # the first averaged stop after the last jump: one 10 ms round recorded, less than the 20 ms window
+    for i in range(runs[-1] + 1, len(steps)):
+        goto(i)
+        if not state()["probe"]["cut"]:
+            break
+    check("count: one round after the jump is averaged", shown="10")
+    expect("count: and the page says it averaged a round", "1 巡" in text_of("cirText"), text_of("cirText"))
+
+
 def main():
     global failures
     if EXE is None:
@@ -339,6 +377,7 @@ def main():
     voltmeter()
     stopwatch()
     seg7_mux()
+    seg7_mux_count()
     buzzer()
     servo()
     dcmotor()

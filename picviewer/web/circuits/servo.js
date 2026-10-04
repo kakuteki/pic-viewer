@@ -5,6 +5,7 @@
   'use strict';
 
   const SPAN = 0.1;          // seconds of recording searched for one full pulse
+  const STARTED = 0.04;      // the pin changed this recently without a full cycle yet: the pulses are just starting
   const CX = 196;            // the horn's pivot
   const CY = 214;
   const HORN = 46;
@@ -78,7 +79,12 @@
       }
       const p = ctx.pulse(level, SPAN);
       const fresh = p.period !== null && p.high !== null && p.since !== null && p.since <= 2 * p.period;
-      if (!fresh && p.cut && p.period === null) {
+      if (!fresh && p.period === null && p.edges > 0 && p.since !== null && p.since <= STARTED) {
+        status.push({ label: 'パルス', value: '（出し始め）', tone: 'on' });
+        return { status, text: `${pin} からパルスを出し始めたところで、まだ 1 周期分の記録が無い（幅は次の 1 周期で分かる）。`,
+          probe: { level: now, width: null, angle: null } };
+      }
+      if (!fresh && p.cut && p.period === null && p.edges === 0) {
         status.push({ label: 'パルス', value: '（記録が足りない）' });
         return { status, text: `この前は書き込みを止めずに走らせたので、パルスの幅はまだ分からない（1 周期分の記録が要る）。`,
           probe: { level: now, width: null, angle: null } };

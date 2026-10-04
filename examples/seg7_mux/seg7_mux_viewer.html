@@ -350,7 +350,7 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
   <footer class="foot"><ul id="foot"></ul></footer>
 </div>
 
-<script type="application/json" id="data">{"title":"4 桁の 7 セグメント LED のダイナミック点灯（mux.c）","tool":"picviewer 0.6.1","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"4 桁を 5 ms ずつ順に点けて 1234 を出し、0.5 秒後に 1235 にする。1 回に点いているのは 1 桁だけ","fosc_hz":4000000,"source_name":"mux.c","source":["// mux.c  4 桁の 7 セグメント LED を 1 桁ずつ順に点けて（ダイナミック点灯）、1234 から 0.5 秒ごとに 1 ずつ数える","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RC0-RC7 = 区画 a-g, dp（4 桁で共通。カソード共通、1 で点灯）","//       RA0-RA3 = 桁（左から。0 にした桁だけが点く）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","","const unsigned char SHAPE[10] = {           // 0-9 の形（ビット 0 が a、ビット 6 が g）","    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F","};","","void main(void)","{","    unsigned int count = 1234;","    unsigned char digit[4], i, frame;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;","    TRISA  = 0b00000000;        // RA0-RA3 は桁の切り替え","    TRISC  = 0b00000000;        // PORTC は区画","    PORTA  = 0b00001111;        // 全部の桁を消しておく","    PORTC  = 0b00000000;","","    while (1) {","        digit[0] = (unsigned char)(count / 1000);   // 左の桁から","        digit[1] = (unsigned char)(count / 100 % 10);","        digit[2] = (unsigned char)(count / 10 % 10);","        digit[3] = (unsigned char)(count % 10);","        for (frame = 0; frame < 25; frame++) {        // 1 枠 20 ms を 25 回 = 0.5 秒","            for (i = 0; i < 4; i++) {","                PORTC = SHAPE[digit[i]];              // 区画を出してから","                PORTA = (unsigned char)(~(1u << i) & 0x0F);   // その桁だけ 0 にして点ける","                __delay_ms(5);","                PORTA = 0b00001111;                   // 全部消して次の桁へ","            }","        }","        count = (count + 1) % 10000;                  // 0.5 秒たったので 1 つ進める","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISA","mask":255,"bits":["TRISA0","TRISA1","TRISA2","TRISA3","TRISA4","TRISA5","TRISA6","TRISA7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTA","mask":255,"bits":["RA0","RA1","RA2","RA3","RA4","RA5","RA6","RA7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":19,"addr":"0x723","cycles":15,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":19,"next":22,"addr":"0x729","cycles":21,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":22,"next":23,"addr":"0x72d","cycles":25,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":23,"next":24,"addr":"0x730","cycles":28,"v":[96,0,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":24,"next":25,"addr":"0x731","cycles":29,"v":[96,0,0,255,255,0,0],"skipped_us":0},{"kind":"step","exec":25,"next":26,"addr":"0x734","cycles":32,"v":[96,0,0,0,255,0,0],"skipped_us":0},{"kind":"step","exec":26,"next":27,"addr":"0x735","cycles":33,"v":[96,0,0,0,0,0,0],"skipped_us":0},{"kind":"step","exec":27,"next":28,"addr":"0x739","cycles":37,"v":[96,0,0,0,0,15,0],"skipped_us":0},{"kind":"step","exec":28,"next":31,"addr":"0x73a","cycles":38,"v":[96,0,0,0,0,15,0],"skipped_us":0},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3157,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3169,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":0},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3192,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":4995},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3225,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":4995},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3243,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":4995},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3266,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":9990},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3299,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":9990},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3323,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":9990},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3346,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":14985},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3379,"v":[96,0,0,0,0,15,102],"watch":"PORTC","skipped_us":14985},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3409,"v":[96,0,0,0,0,7,102],"watch":"PORTA","skipped_us":14985},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3432,"v":[96,0,0,0,0,15,102],"watch":"PORTA","skipped_us":19980},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3483,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":19980},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3495,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":19980},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3518,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":24975},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3551,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":24975},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3569,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":24975},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3592,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":29970},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3625,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":29970},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3649,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":29970},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3672,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":34965},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3705,"v":[96,0,0,0,0,15,102],"watch":"PORTC","skipped_us":34965},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3735,"v":[96,0,0,0,0,7,102],"watch":"PORTA","skipped_us":34965},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3758,"v":[96,0,0,0,0,15,102],"watch":"PORTA","skipped_us":39960},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3809,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":39960},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3821,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":39960},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3844,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":44955},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3877,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":44955},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3895,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":44955},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3918,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":49950},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3951,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":49950},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3975,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":49950},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3998,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":54945},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":4031,"v":[96,0,0,0,0,15,102],"watch":"PORTC","skipped_us":54945},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":4061,"v":[96,0,0,0,0,7,102],"watch":"PORTA","skipped_us":54945},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":4084,"v":[96,0,0,0,0,15,102],"watch":"PORTA","skipped_us":59940},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":4135,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":59940},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":4147,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":59940},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":4170,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":64935},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":4203,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":64935},{"kind":"run","exec":43,"next":43,"addr":"0x7db","cycles":11276,"v":[96,0,0,0,0,15,102],"skipped_us":499500},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14540,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":499500},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14552,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":499500},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14575,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":504495},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14608,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":504495},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14626,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":504495},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14649,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":509490},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14682,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":509490},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14706,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":509490},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14729,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":514485},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14762,"v":[96,0,0,0,0,15,109],"watch":"PORTC","skipped_us":514485},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14792,"v":[96,0,0,0,0,7,109],"watch":"PORTA","skipped_us":514485},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14815,"v":[96,0,0,0,0,15,109],"watch":"PORTA","skipped_us":519480},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14866,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":519480},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14878,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":519480},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14901,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":524475},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14934,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":524475},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14952,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":524475},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14975,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":529470},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15008,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":529470},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15032,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":529470},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15055,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":534465},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15088,"v":[96,0,0,0,0,15,109],"watch":"PORTC","skipped_us":534465},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15118,"v":[96,0,0,0,0,7,109],"watch":"PORTA","skipped_us":534465},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15141,"v":[96,0,0,0,0,15,109],"watch":"PORTA","skipped_us":539460},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15192,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":539460},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15204,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":539460},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15227,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":544455},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15260,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":544455},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15278,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":544455},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15301,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":549450},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15334,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":549450},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15358,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":549450},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15381,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":554445},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15414,"v":[96,0,0,0,0,15,109],"watch":"PORTC","skipped_us":554445},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15444,"v":[96,0,0,0,0,7,109],"watch":"PORTA","skipped_us":554445},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15467,"v":[96,0,0,0,0,15,109],"watch":"PORTA","skipped_us":559440},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15518,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":559440},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15530,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":559440},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15553,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":564435},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15586,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":564435}],"waves":[],"notes":{"27":"全部の桁を消しておく（RA0-RA3 を 1 に）。","31":"数を 4 つの桁に分ける（左の桁から）。","37":"4 桁で共通の区画の線に、この桁の数字の形を出す。","38":"この桁だけを 0 にして点ける。ほかの 3 桁は消えている。","39":"5 ms そのまま。人の目には、4 桁を順に点ける 20 ms の平均が見える。","40":"全部の桁を消してから、次の桁の形を出す（消さないと前の形が次の桁ににじむ）。","43":"25 枠（0.5 秒）たったので、数を 1 つ進める。"},"circuit":{"type":"seg7mux","port":"C","digits":[{"pin":"RA0","active":"low"},{"pin":"RA1","active":"low"},{"pin":"RA2","active":"low"},{"pin":"RA3","active":"low"}]},"counters":[]}]}</script>
+<script type="application/json" id="data">{"title":"4 桁の 7 セグメント LED のダイナミック点灯（mux.c）","tool":"picviewer 0.6.2","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"4 桁を 5 ms ずつ順に点けて 1234 を出し、0.5 秒後に 1235 にする。1 回に点いているのは 1 桁だけ","fosc_hz":4000000,"source_name":"mux.c","source":["// mux.c  4 桁の 7 セグメント LED を 1 桁ずつ順に点けて（ダイナミック点灯）、1234 から 0.5 秒ごとに 1 ずつ数える","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RC0-RC7 = 区画 a-g, dp（4 桁で共通。カソード共通、1 で点灯）","//       RA0-RA3 = 桁（左から。0 にした桁だけが点く）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","","const unsigned char SHAPE[10] = {           // 0-9 の形（ビット 0 が a、ビット 6 が g）","    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F","};","","void main(void)","{","    unsigned int count = 1234;","    unsigned char digit[4], i, frame;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;","    TRISA  = 0b00000000;        // RA0-RA3 は桁の切り替え","    TRISC  = 0b00000000;        // PORTC は区画","    PORTA  = 0b00001111;        // 全部の桁を消しておく","    PORTC  = 0b00000000;","","    while (1) {","        digit[0] = (unsigned char)(count / 1000);   // 左の桁から","        digit[1] = (unsigned char)(count / 100 % 10);","        digit[2] = (unsigned char)(count / 10 % 10);","        digit[3] = (unsigned char)(count % 10);","        for (frame = 0; frame < 25; frame++) {        // 1 枠 20 ms を 25 回 = 0.5 秒","            for (i = 0; i < 4; i++) {","                PORTC = SHAPE[digit[i]];              // 区画を出してから","                PORTA = (unsigned char)(~(1u << i) & 0x0F);   // その桁だけ 0 にして点ける","                __delay_ms(5);","                PORTA = 0b00001111;                   // 全部消して次の桁へ","            }","        }","        count = (count + 1) % 10000;                  // 0.5 秒たったので 1 つ進める","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISA","mask":255,"bits":["TRISA0","TRISA1","TRISA2","TRISA3","TRISA4","TRISA5","TRISA6","TRISA7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTA","mask":255,"bits":["RA0","RA1","RA2","RA3","RA4","RA5","RA6","RA7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":19,"addr":"0x723","cycles":15,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":19,"next":22,"addr":"0x729","cycles":21,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":22,"next":23,"addr":"0x72d","cycles":25,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":23,"next":24,"addr":"0x730","cycles":28,"v":[96,0,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":24,"next":25,"addr":"0x731","cycles":29,"v":[96,0,0,255,255,0,0],"skipped_us":0},{"kind":"step","exec":25,"next":26,"addr":"0x734","cycles":32,"v":[96,0,0,0,255,0,0],"skipped_us":0},{"kind":"step","exec":26,"next":27,"addr":"0x735","cycles":33,"v":[96,0,0,0,0,0,0],"skipped_us":0},{"kind":"step","exec":27,"next":28,"addr":"0x739","cycles":37,"v":[96,0,0,0,0,15,0],"skipped_us":0},{"kind":"step","exec":28,"next":31,"addr":"0x73a","cycles":38,"v":[96,0,0,0,0,15,0],"skipped_us":0},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3157,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3169,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":0},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3192,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":4995},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3225,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":4995},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3243,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":4995},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3266,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":9990},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3299,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":9990},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3323,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":9990},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3346,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":14985},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3379,"v":[96,0,0,0,0,15,102],"watch":"PORTC","skipped_us":14985},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3409,"v":[96,0,0,0,0,7,102],"watch":"PORTA","skipped_us":14985},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3432,"v":[96,0,0,0,0,15,102],"watch":"PORTA","skipped_us":19980},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3483,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":19980},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3495,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":19980},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3518,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":24975},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3551,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":24975},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3569,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":24975},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3592,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":29970},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3625,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":29970},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3649,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":29970},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3672,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":34965},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3705,"v":[96,0,0,0,0,15,102],"watch":"PORTC","skipped_us":34965},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3735,"v":[96,0,0,0,0,7,102],"watch":"PORTA","skipped_us":34965},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3758,"v":[96,0,0,0,0,15,102],"watch":"PORTA","skipped_us":39960},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3809,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":39960},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3821,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":39960},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3844,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":44955},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3877,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":44955},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3895,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":44955},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3918,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":49950},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":3951,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":49950},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":3975,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":49950},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":3998,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":54945},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":4031,"v":[96,0,0,0,0,15,102],"watch":"PORTC","skipped_us":54945},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":4061,"v":[96,0,0,0,0,7,102],"watch":"PORTA","skipped_us":54945},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":4084,"v":[96,0,0,0,0,15,102],"watch":"PORTA","skipped_us":59940},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":4135,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":59940},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":4147,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":59940},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":4170,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":64935},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":4203,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":64935},{"kind":"run","exec":43,"next":43,"addr":"0x7db","cycles":11276,"v":[96,0,0,0,0,15,102],"skipped_us":499500},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14540,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":499500},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14552,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":499500},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14575,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":504495},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14608,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":504495},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14626,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":504495},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14649,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":509490},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14682,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":509490},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14706,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":509490},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14729,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":514485},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14762,"v":[96,0,0,0,0,15,109],"watch":"PORTC","skipped_us":514485},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14792,"v":[96,0,0,0,0,7,109],"watch":"PORTA","skipped_us":514485},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14815,"v":[96,0,0,0,0,15,109],"watch":"PORTA","skipped_us":519480},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14866,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":519480},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14878,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":519480},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14901,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":524475},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":14934,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":524475},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":14952,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":524475},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":14975,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":529470},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15008,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":529470},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15032,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":529470},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15055,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":534465},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15088,"v":[96,0,0,0,0,15,109],"watch":"PORTC","skipped_us":534465},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15118,"v":[96,0,0,0,0,7,109],"watch":"PORTA","skipped_us":534465},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15141,"v":[96,0,0,0,0,15,109],"watch":"PORTA","skipped_us":539460},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15192,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":539460},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15204,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":539460},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15227,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":544455},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15260,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":544455},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15278,"v":[96,0,0,0,0,13,91],"watch":"PORTA","skipped_us":544455},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15301,"v":[96,0,0,0,0,15,91],"watch":"PORTA","skipped_us":549450},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15334,"v":[96,0,0,0,0,15,79],"watch":"PORTC","skipped_us":549450},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15358,"v":[96,0,0,0,0,11,79],"watch":"PORTA","skipped_us":549450},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15381,"v":[96,0,0,0,0,15,79],"watch":"PORTA","skipped_us":554445},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15414,"v":[96,0,0,0,0,15,109],"watch":"PORTC","skipped_us":554445},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15444,"v":[96,0,0,0,0,7,109],"watch":"PORTA","skipped_us":554445},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15467,"v":[96,0,0,0,0,15,109],"watch":"PORTA","skipped_us":559440},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15518,"v":[96,0,0,0,0,15,6],"watch":"PORTC","skipped_us":559440},{"kind":"write","exec":38,"next":39,"addr":"0x7bb","cycles":15530,"v":[96,0,0,0,0,14,6],"watch":"PORTA","skipped_us":559440},{"kind":"write","exec":40,"next":41,"addr":"0x7d0","cycles":15553,"v":[96,0,0,0,0,15,6],"watch":"PORTA","skipped_us":564435},{"kind":"write","exec":37,"next":38,"addr":"0x7ae","cycles":15586,"v":[96,0,0,0,0,15,91],"watch":"PORTC","skipped_us":564435}],"waves":[],"notes":{"27":"全部の桁を消しておく（RA0-RA3 を 1 に）。","31":"数を 4 つの桁に分ける（左の桁から）。","37":"4 桁で共通の区画の線に、この桁の数字の形を出す。","38":"この桁だけを 0 にして点ける。ほかの 3 桁は消えている。","39":"5 ms そのまま。人の目には、4 桁を順に点ける 20 ms の平均が見える。","40":"全部の桁を消してから、次の桁の形を出す（消さないと前の形が次の桁ににじむ）。","43":"25 枠（0.5 秒）たったので、数を 1 つ進める。"},"circuit":{"type":"seg7mux","port":"C","digits":[{"pin":"RA0","active":"low"},{"pin":"RA1","active":"low"},{"pin":"RA2","active":"low"},{"pin":"RA3","active":"low"}]},"counters":[]}]}</script>
 <script>
 window.PicViewer = { circuits: {}, util: {} };
 /* seg7mux: several 7-segment digits that share the segment lines and are lit one at a time (dynamic drive).
@@ -408,44 +408,72 @@ window.PicViewer = { circuits: {}, util: {} };
       const out = tr === undefined || ((tr >> pb.bit) & 1) === 0;
       return out && ((v >> pb.bit) & 1) === (d.low ? 0 : 1);
     });
-    return { segs, on };
+    // which digit pins are outputs at all: TRIS making a pin an output is no switch-on
+    const outs = c.digits.map((d) => {
+      const pb = U.portBit(d.pin);
+      const tr = R['TRIS' + pb.port];
+      return tr === undefined || ((tr >> pb.bit) & 1) === 0;
+    });
+    return { segs, on, outs };
   }
 
-  // the time each segment of each digit was lit in the window before this step, the window itself (one round of
-  // the digits when that is longer than window_ms), and how much of it the recording covers
+  // the time each segment of each digit was lit in the window up to the next stop (this stop's values hold until
+  // then), the window itself (one round of the digits when that is longer than window_ms), and how much of it the
+  // recording covers. The average starts at the later of the last input change (set, press: the display before it
+  // was another one) and the first write stop (the setup before it lasts microseconds, with every pin in its reset
+  // state). A recording cut by run_to that holds one round or more is averaged over its whole rounds: the display
+  // repeats itself, so that is what the eye sees
   function average(c, ctx, U) {
-    const h = ctx.history(LOOK_BACK);
-    const states = h.spans.map((s) => ({ ...s, st: stateOf(c, s.R, U) }));
+    const { t, k } = ctx;
+    const h = ctx.history(LOOK_BACK, true);
+    let since = 0;
+    for (let i = k; i > 0; i--) if (t.steps[i].inputs || t.steps[i].key !== undefined) { since = i - 1; break; }
+    const firstLoop = t.steps.findIndex((st) => st.kind === 'write' || st.kind === 'timeout');
+    if (firstLoop > 0) since = Math.max(since, firstLoop);
+    const trimmed = h.spans.length > 0 && h.spans[h.spans.length - 1].i < since;
+    const states = h.spans.filter((sp) => sp.i >= since).map((sp) => ({ ...sp, st: stateOf(c, sp.R, U) }));
     // one round: the time between the last two switch-ons of the digit switched on most recently, with another
-    // digit switched on in between (switching during the start-up is no round)
+    // digit switched on in between, or that digit blinking alone
     const onAt = c.digits.map(() => []);
-    states.forEach((s, j) => {
-      const newer = j === 0 ? stateOf(c, ctx.R, U) : states[j - 1].st;
-      s.st.on.forEach((on, d) => { if (!on && newer.on[d]) onAt[d].push(s.to); });
+    const atTop = stateOf(c, h.top === k ? ctx.R : ctx.regsAt(t.steps[h.top]), U);
+    states.forEach((sp, j) => {
+      const newer = j === 0 ? atTop : states[j - 1].st;
+      sp.st.on.forEach((on, d) => { if (!on && sp.st.outs[d] && newer.on[d]) onAt[d].push(sp.to); });
     });
     let round = null;
     const order = onAt.map((ts, d) => ({ ts, d })).filter((x) => x.ts.length >= 2).sort((a, b) => b.ts[0] - a.ts[0]);
     if (order.length) {
       const [t0, t1] = order[0].ts;
       const between = onAt.some((ts, d) => d !== order[0].d && ts.some((x) => x > t1 && x < t0));
-      if (between || c.digits.length === 1) round = t0 - t1;
+      const alone = onAt.every((ts, d) => d === order[0].d || ts.length === 0);
+      if (between || alone || c.digits.length === 1) round = t0 - t1;
     }
-    const win = Math.min(LOOK_BACK, Math.max(c.windowS, round || 0));
+    let win = Math.min(LOOK_BACK, Math.max(c.windowS, round || 0));
+    let rounds = 0;
+    const recorded = states.length ? h.end - states[states.length - 1].from : 0;
+    if (h.cut && !trimmed && recorded < win * 0.999 && round && recorded >= round) {
+      rounds = Math.floor(recorded / round + 1e-9);
+      win = rounds * round;
+    }
     const from = h.end - win;
     const sums = c.digits.map(() => ({}));
     const lit = new Set();
     let covered = 0;
-    states.forEach((s) => {
-      const a = Math.max(s.from, from);
-      if (s.to <= a) return;
-      const dt = s.to - a;
+    let switched = false;
+    states.forEach((sp) => {
+      const a = Math.max(sp.from, from);
+      if (sp.to <= a) return;
+      const dt = sp.to - a;
       covered += dt;
-      s.st.on.forEach((on, d) => {
+      sp.st.on.forEach((on, d) => {
         if (!on) return;
-        Object.entries(s.st.segs).forEach(([n, l]) => { if (l) { sums[d][n] = (sums[d][n] || 0) + dt; lit.add(d); } });
+        Object.entries(sp.st.segs).forEach(([n, l]) => { if (l) { sums[d][n] = (sums[d][n] || 0) + dt; lit.add(d); } });
       });
     });
-    return { sums, covered, win, round, lit, cut: h.cut && covered < win * 0.999 };
+    onAt.forEach((ts) => { if (ts.some((x) => x > from)) switched = true; });
+    // cut short only by a stretch the recording does not know; trimmed at an input change or at the start of the
+    // loop, what is left is all recorded and is averaged as it is
+    return { sums, covered, win, round, rounds, lit, switched, cut: h.cut && !trimmed && covered < win * 0.999 };
   }
 
   const digitX = (d) => X0 + d * (DW + GAP);
@@ -503,9 +531,11 @@ window.PicViewer = { circuits: {}, util: {} };
       }
       const noTris = [c.port, ...c.digits.map((d) => d.pin[1])].filter((p, i, a) => a.indexOf(p) === i && R['TRIS' + p] === undefined);
       const here = stateOf(c, R, U);
-      const avg = ctx.instrHz ? average(c, ctx, U) : { covered: 0, lit: new Set(), round: null, cut: false };
-      // nothing (or not enough) recorded before this stop, or no clock to average over: this moment as it is
-      const averaged = avg.covered > 0 && !avg.cut;
+      const avg = ctx.instrHz ? average(c, ctx, U) : { covered: 0, lit: new Set(), round: null, rounds: 0, cut: false, switched: false };
+      // nothing (or not enough) recorded before this stop, or no clock to average over: this moment as it is. No
+      // digit switched on in a recording shorter than the window: the display stands still, as it is now
+      const still = avg.covered > 0 && !avg.cut && !avg.switched && avg.covered < avg.win * 0.999;
+      const averaged = avg.covered > 0 && !avg.cut && !still;
       const share = averaged
         ? avg.sums.map((s) => Object.fromEntries(Object.entries(s).map(([n, v]) => [n, v / avg.covered])))
         : here.on.map((on) => (on ? Object.fromEntries(Object.entries(here.segs).filter(([, l]) => l).map(([n]) => [n, 1])) : {}));
@@ -532,8 +562,9 @@ window.PicViewer = { circuits: {}, util: {} };
       }).join('');
       const nowPins = c.digits.filter((_, d) => here.on[d]).map((d) => d.pin);
       const ms = (s) => `${U.num(s * 1000, s < 0.01 ? 1 : 0)} ms`;
-      const byRound = avg.round && avg.win > c.windowS;
-      const winText = byRound ? `1 巡の ${ms(avg.win)}` : ms(avg.win || c.windowS);
+      const byRound = (avg.round && avg.win > c.windowS) || avg.rounds > 0;
+      const roundsText = avg.rounds > 1 ? `${avg.rounds} 巡` : '1 巡';
+      const winText = byRound ? `${roundsText}の ${ms(avg.win)}` : ms(avg.win || c.windowS);
       const texts = [];
       if (!ctx.instrHz) texts.push('fosc_hz が無いので時間で平均できず、この瞬間だけを描いている。');
       else if (avg.covered === 0) texts.push('この場面の前は書き込みを止めずに走らせた（run_to）ので、今の瞬間だけを描いている。');
@@ -542,23 +573,27 @@ window.PicViewer = { circuits: {}, util: {} };
           + '平均できず、今の瞬間だけを描いている。');
       }
       texts.push(nowPins.length ? `今は ${nowPins.join('、')} の桁を点けている。` : '今はどの桁も消えている。');
+      if (still && nowPins.length) texts.push(`桁を切り替えていないので、今の表示がそのまま見える: ${shown.trim() || '（何も）'}。`);
       if (averaged) {
-        texts.push(avg.lit.size >= 2
-          ? `桁を順に速く切り替えているので、目には直前${byRound ? 'の 1 巡（' + ms(avg.win) + '）を平均したもの' : ` ${winText} の平均`}が見える: ${shown.trim() || '（何も）'}。`
-          : `直前 ${winText} の間に点いていた桁は${avg.lit.size ? ' 1 つだけ' : '無い'}。`);
+        texts.push(avg.lit.size >= 2 && avg.switched
+          ? `桁を順に速く切り替えているので、目には直前${byRound ? `の ${roundsText}（${ms(avg.win)}）を平均したもの` : ` ${winText} の平均`}が見える: ${shown.trim() || '（何も）'}。`
+          : avg.lit.size >= 2 ? `桁を切り替えず、${avg.lit.size} 桁を点けたままにしている: ${shown.trim() || '（何も）'}。`
+            : `直前 ${winText} の間に点いていた桁は${avg.lit.size ? ' 1 つだけ' : '無い'}。`);
         if (avg.round && avg.round > FLICKER_S) texts.push(`1 巡に ${ms(avg.round)} かかる（40 Hz より遅い）ので、目にはちらついて見える。`);
+        if (avg.rounds) texts.push('（その前は書き込みを止めずに走らせたので、記録のある分だけを平均した。）');
       }
       if (noTris.length) texts.push(`TRIS${noTris.join('、TRIS')} を記録していないので、ピンは出力と仮定した。`);
       return {
         status: [
           { label: '目に見える表示', value: shown.trim() ? shown : '（全部消えている）', tone: shown.trim() ? 'on' : '', mono: true },
           { label: '今点いている桁', value: nowPins.join('、') || 'なし', tone: nowPins.length ? 'on' : '' },
-          { label: '平均した時間', value: averaged ? `${ms(avg.covered)}（${byRound ? '1 巡' : `窓 ${ms(avg.win)}`}）` : 'この場面だけ' },
+          { label: '平均した時間', value: averaged ? `${ms(avg.covered)}（${byRound ? roundsText : `窓 ${ms(avg.win)}`}）`
+            : still ? 'この場面だけ（切り替えていない）' : 'この場面だけ' },
           ...(avg.round ? [{ label: '1 巡', value: `${ms(avg.round)}（${U.num(1 / avg.round, 0)} Hz）` }] : []),
         ],
         text: texts.join(''),
         probe: { shown, now: here.on.map((on, d) => (on ? d : -1)).filter((d) => d >= 0), covered: avg.covered,
-          round: avg.round, cut: avg.cut },
+          round: avg.round, cut: avg.cut, still },
       };
     },
   };
@@ -727,13 +762,17 @@ window.PicViewer = { circuits: {}, util: {} };
     return Boolean(next) && next.kind !== 'run' && next.kind !== 'start' && t.steps[i].kind !== 'end';
   };
   // the recorded stretches before step k, newest first, as far back as `span` (seconds, or instruction cycles
-  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut}
-  function history(t, k, span) {
+  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut, end, top}. With
+  // `ahead` they reach on to the next stop when this stop's values are known to hold until then (top = k + 1)
+  function history(t, k, span, ahead) {
     const timeOf = (i) => { const s = secondsOf(t, t.steps[i]); return s === null ? t.steps[i].cycles : s; };
-    const end = timeOf(k);
+    // not across an input change: the inputs of step k + 1 were set right after stop k, so up to it is after the change
+    const next = t.steps[k + 1];
+    const top = ahead && knownAfter(t, k) && !next.inputs && next.key === undefined ? k + 1 : k;
+    const end = timeOf(top);
     const spans = [];
     let cut = false;
-    for (let i = k - 1; i >= 0; i--) {
+    for (let i = top - 1; i >= 0; i--) {
       const b = timeOf(i + 1);
       if (end - b >= span) break;
       if (!knownAfter(t, i)) { cut = true; break; }
@@ -741,11 +780,12 @@ window.PicViewer = { circuits: {}, util: {} };
       if (b > a) spans.push({ from: a, to: b, R: regsAt(t, t.steps[i]), i });
       if (end - timeOf(i) >= span) break;
     }
-    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end };
+    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end, top };
   }
   // a pin's last full cycle before step k, from its level at each stop (level(R) gives 0 or 1): the time from the
   // second last rising edge to the last, and how long it was 1 in it. null when it did not go round twice within
-  // `span` of recorded time. `since` is how long ago its level last changed.
+  // `span` of recorded time. `since` is how long ago its level last changed, `edges` how often it changed in the
+  // recording looked at; `cut` says that recording starts at an unknown stretch (run_to), `input` at an input change.
   function pulse(t, k, level, span) {
     const h = history(t, k, span);
     // inputs changed by the plan (set, press) change what the program does; in the simulation they come only
@@ -754,7 +794,6 @@ window.PicViewer = { circuits: {}, util: {} };
     for (let i = k; i > 0; i--) if (t.steps[i].inputs || t.steps[i].key !== undefined) { since = i - 1; break; }
     const cutAtInput = h.spans.length > 0 && h.spans[h.spans.length - 1].i < since;
     h.spans = h.spans.filter((s) => s.i >= since);
-    h.cut = h.cut || cutAtInput;
     const now = level(regsAt(t, t.steps[k]));
     const seq = [{ at: h.end, v: now }, ...h.spans.map((s) => ({ at: s.from, v: level(s.R) }))];
     // seq: the level from each moment on, newest first; an edge where the level differs from the one before it
@@ -764,12 +803,13 @@ window.PicViewer = { circuits: {}, util: {} };
     }
     const ago = edges.length ? h.end - edges[0].at : null;
     const rises = edges.filter((e) => e.rising);
-    if (rises.length < 2) return { period: null, high: null, duty: null, since: ago, level: now, cut: h.cut };
+    const base = { since: ago, level: now, cut: h.cut, input: cutAtInput, edges: edges.length };
+    if (rises.length < 2) return { ...base, period: null, high: null, duty: null };
     const [r1, r2] = rises;
     const fall = edges.find((e) => !e.rising && e.at > r2.at && e.at <= r1.at);
     const period = r1.at - r2.at;
     const high = fall ? fall.at - r2.at : null;
-    return { period, high, duty: high === null || period <= 0 ? null : high / period, since: ago, level: now, cut: h.cut };
+    return { ...base, period, high, duty: high === null || period <= 0 ? null : high / period };
   }
   PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath, seg7 };
 
@@ -1278,7 +1318,7 @@ window.PicViewer = { circuits: {}, util: {} };
       // seconds since reset of any step (instruction cycles when the clock is not known)
       timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; },
       // the recorded stretches before this step, and a pin's last full cycle (see history and pulse above)
-      history: (span) => history(t, S.step, span),
+      history: (span, ahead) => history(t, S.step, span, ahead),
       pulse: (level, span) => pulse(t, S.step, level, span) };
     const boxes = $('cirBox').children;
     const results = partsOf(t).map((cfg, i) => pluginOf(cfg).update({ ...base, cfg, box: boxes[i] }) || {});

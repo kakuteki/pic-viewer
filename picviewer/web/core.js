@@ -100,13 +100,17 @@
     return Boolean(next) && next.kind !== 'run' && next.kind !== 'start' && t.steps[i].kind !== 'end';
   };
   // the recorded stretches before step k, newest first, as far back as `span` (seconds, or instruction cycles
-  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut}
-  function history(t, k, span) {
+  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut, end, top}. With
+  // `ahead` they reach on to the next stop when this stop's values are known to hold until then (top = k + 1)
+  function history(t, k, span, ahead) {
     const timeOf = (i) => { const s = secondsOf(t, t.steps[i]); return s === null ? t.steps[i].cycles : s; };
-    const end = timeOf(k);
+    // not across an input change: the inputs of step k + 1 were set right after stop k, so up to it is after the change
+    const next = t.steps[k + 1];
+    const top = ahead && knownAfter(t, k) && !next.inputs && next.key === undefined ? k + 1 : k;
+    const end = timeOf(top);
     const spans = [];
     let cut = false;
-    for (let i = k - 1; i >= 0; i--) {
+    for (let i = top - 1; i >= 0; i--) {
       const b = timeOf(i + 1);
       if (end - b >= span) break;
       if (!knownAfter(t, i)) { cut = true; break; }
@@ -114,11 +118,12 @@
       if (b > a) spans.push({ from: a, to: b, R: regsAt(t, t.steps[i]), i });
       if (end - timeOf(i) >= span) break;
     }
-    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end };
+    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end, top };
   }
   // a pin's last full cycle before step k, from its level at each stop (level(R) gives 0 or 1): the time from the
   // second last rising edge to the last, and how long it was 1 in it. null when it did not go round twice within
-  // `span` of recorded time. `since` is how long ago its level last changed.
+  // `span` of recorded time. `since` is how long ago its level last changed, `edges` how often it changed in the
+  // recording looked at; `cut` says that recording starts at an unknown stretch (run_to), `input` at an input change.
   function pulse(t, k, level, span) {
     const h = history(t, k, span);
     // inputs changed by the plan (set, press) change what the program does; in the simulation they come only
@@ -127,7 +132,6 @@
     for (let i = k; i > 0; i--) if (t.steps[i].inputs || t.steps[i].key !== undefined) { since = i - 1; break; }
     const cutAtInput = h.spans.length > 0 && h.spans[h.spans.length - 1].i < since;
     h.spans = h.spans.filter((s) => s.i >= since);
-    h.cut = h.cut || cutAtInput;
     const now = level(regsAt(t, t.steps[k]));
     const seq = [{ at: h.end, v: now }, ...h.spans.map((s) => ({ at: s.from, v: level(s.R) }))];
     // seq: the level from each moment on, newest first; an edge where the level differs from the one before it
@@ -137,12 +141,13 @@
     }
     const ago = edges.length ? h.end - edges[0].at : null;
     const rises = edges.filter((e) => e.rising);
-    if (rises.length < 2) return { period: null, high: null, duty: null, since: ago, level: now, cut: h.cut };
+    const base = { since: ago, level: now, cut: h.cut, input: cutAtInput, edges: edges.length };
+    if (rises.length < 2) return { ...base, period: null, high: null, duty: null };
     const [r1, r2] = rises;
     const fall = edges.find((e) => !e.rising && e.at > r2.at && e.at <= r1.at);
     const period = r1.at - r2.at;
     const high = fall ? fall.at - r2.at : null;
-    return { period, high, duty: high === null || period <= 0 ? null : high / period, since: ago, level: now, cut: h.cut };
+    return { ...base, period, high, duty: high === null || period <= 0 ? null : high / period };
   }
   PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath, seg7 };
 
@@ -651,7 +656,7 @@
       // seconds since reset of any step (instruction cycles when the clock is not known)
       timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; },
       // the recorded stretches before this step, and a pin's last full cycle (see history and pulse above)
-      history: (span) => history(t, S.step, span),
+      history: (span, ahead) => history(t, S.step, span, ahead),
       pulse: (level, span) => pulse(t, S.step, level, span) };
     const boxes = $('cirBox').children;
     const results = partsOf(t).map((cfg, i) => pluginOf(cfg).update({ ...base, cfg, box: boxes[i] }) || {});

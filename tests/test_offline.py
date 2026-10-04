@@ -14,8 +14,8 @@ from picviewer import __version__
 from picviewer.bundle import dumps, expand_plan, make_steps, register_info
 from picviewer.cli import _sources, build_parser
 from picviewer.cli import main as cli_main
-from picviewer.compiler import (FAST_VAR, CompileError, compat_source, compiled_name, copy_includes, fast_define,
-                                fast_source, skipped_per_ms)
+from picviewer.compiler import (FAST_VAR, CompileError, compat_source, compiled_name, copy_includes, error_lines,
+                                fast_define, fast_source, skipped_per_ms)
 from picviewer.index import ERROR_FILE, find_projects, index_html, natural
 from picviewer.init import analyze, guess, init_source
 from picviewer.linetab import line_at, read_line_table, writer_address
@@ -723,6 +723,14 @@ class FastForwardTest(unittest.TestCase):
             self.assertTrue((sim / "main" / "melody.c").is_file())
             self.assertTrue((sim / "main" / "notes.h").is_file())     # what the included file includes too
 
+    def test_error_lines_put_the_error_first(self):
+        warn = "a.c:5:22: warning: relational comparison result unused\n   5 | for(;;)\n     | ^\n"
+        log = warn * 6 + "a.c:121:1: error: extraneous closing brace ('}')\n 121 | }\n     | ^\n4 warnings and 1 error generated.\n"
+        text = error_lines(log)
+        self.assertTrue(text.startswith("a.c:121:1: error: extraneous closing brace"))
+        self.assertIn("compile.log", text)
+        self.assertEqual(error_lines("just\nsome\noutput"), "just\nsome\noutput")   # no error line: the end
+
     def test_compiled_name(self):
         def name(src):
             return compiled_name(Target(id="a", device="PIC16F886", source=Path(src), source_name=src,
@@ -893,6 +901,20 @@ class InitTest(unittest.TestCase):
         text, table = self.program(body, before)
         target, _ = guess(text, table, DEVICE_REGS | {"LATC"}, DEVICE_PINS)
         return target, [(s["pin"], s["active"]) for s in target["circuit"].get("switches", [])]
+
+    def test_switch_read_by_the_int_interrupt(self):
+        isr = ("void __interrupt() isr(void)\n{\n"
+               "    if (PORTBbits.RB4 == 1 && PORTBbits.RB3 == 0) { n++; }\n"
+               "    if (PORTBbits.RB4 == 0 && PORTBbits.RB3 == 1) { m++; }\n"
+               "    INTCONbits.INTF = 0;\n}")
+        text, table = self.program(["TRISB = 0xFF;", "INTCONbits.INTE = 1;", "INTCONbits.GIE = 1;", "while (1) {",
+                                    "    PORTC = n + m;", "}"], before="unsigned char n, m;\n" + isr)
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        notes = [a["note"] for a in target["trace"] if "set" in a]
+        # the interrupt reads RB4 when RB0 raises it: hold RB4 and press RB0 (three times: the program counts)
+        self.assertIn("RB4 を押したままにする", notes)
+        self.assertIn("RB4 を押したまま RB0 を押す（INT の割り込み）（3 回目）", notes)
+        self.assertFalse(any("同時に押す" in n for n in notes))     # RB4 == 1 && RB3 == 0 is not "press both"
 
     def test_loops_that_blink_and_constants_from_variables(self):
         # PORTC = 0 inside the loop is a write too; with an if in the loop the few-writes shortcut does not apply
@@ -1153,6 +1175,123 @@ void main(void)
         target, _ = guess(self.MUX_SRC, table, DEVICE_REGS, DEVICE_PINS, digits="high")
         self.assertEqual({d["active"] for d in target["circuit"][0]["digits"]}, {"high"})   # --digits high
 
+    def test_counting_display_moves_the_count_on(self):
+        lines = ["#include <xc.h>", "#define _XTAL_FREQ 4000000",
+                 "const unsigned char seg[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x27, 0x7F, 0x6F};",
+                 "void count(void);", "void main(void)", "{", "    TRISA = 0;", "    TRISC = 0;",
+                 "    while (1) {", "        count();", "    }", "}", "void count(void)", "{",
+                 "    for (int t = 0; t < 10; t++) {", "        for (int u = 0; u < 10; u++) {",
+                 "            for (int k = 0; k < 25; k++) {",
+                 "                PORTC = seg[t]; PORTAbits.RA1 = 0; __delay_ms(5); PORTAbits.RA1 = 1;",
+                 "                PORTC = seg[u]; PORTAbits.RA0 = 0; __delay_ms(5); PORTAbits.RA0 = 1;",
+                 "            }", "        }", "    }", "}"]
+        no = {line.strip(): n for n, line in enumerate(lines, 1)}
+        table = [(0x700 + n, n) for n in range(no["TRISA = 0;"], len(lines) + 1)]
+        target, facts = guess("\n".join(lines), table, DEVICE_REGS, DEVICE_PINS)
+        self.assertEqual(target["circuit"]["type"], "seg7mux")
+        self.assertEqual(facts["counting"], ["u", "t"])        # the loop main's loop calls; k indexes nothing
+        u_head, t_head = no["for (int u = 0; u < 10; u++) {"], no["for (int t = 0; t < 10; t++) {"]
+        jumps = [(a["run_to"], a.get("show")) for a in target["trace"] if "run_to" in a][1:]
+        self.assertEqual(jumps, [(21, u_head)] * 3 + [(22, t_head)])   # where u++ and t++ sit: the closing lines
+        # a for that walks the digits writes one shape a pass: no count to move on
+        walk = ["while (1) {", "    for (i = 0; i < 2; i++) {", "        PORTC = seg[i];",
+                "        PORTA = ~(1u << i) & 0x03;", "        __delay_ms(5);", "    }", "}"]
+        text, table = self.program(walk, before="const char seg[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66};\nunsigned char i;")
+        target, facts = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        self.assertEqual(target["circuit"]["type"], "seg7mux")
+        self.assertEqual(facts["counting"], [])
+        self.assertEqual(sum(1 for a in target["trace"] if "run_to" in a), 1)
+
+    def test_board_known_to_have_digits(self):
+        regs = DEVICE_REGS | {"LATB", "LATD", "TRISD", "PORTD"}
+        pins = DEVICE_PINS | {f"RD{b}" for b in range(8)}
+        # one segment written, then the digits switched off: on a board with digits (--digits) a 7-segment display
+        once = ["TRISB = 0;", "TRISD = 0;", "PORTD = 0;", "LATBbits.LATB2 = 1;", "LATBbits.LATB3 = 1;", "while (1) {",
+                "    LATD = 0b11011111;", "    LATBbits.LATB0 = 1;", "    LATBbits.LATB1 = 1;", "}"]
+        text, table = self.program(once)
+        target, _ = guess(text, table, regs, pins, digits="low")
+        self.assertEqual(target["circuit"], {"type": "seg7mux", "port": "D", "common": "anode",
+                                             "digits": [{"pin": f"RB{b}", "active": "low"} for b in range(4)]})
+        target, _ = guess(text, table, regs, pins)
+        self.assertNotEqual(target["circuit"]["type"], "seg7mux")          # nothing says 7 segments without it
+        # the digits only switched off in the setup: every pin written bit by bit on another port
+        setup_only = ["TRISB = 0;", "TRISD = 0;", *[f"LATBbits.LATB{b} = 1;" for b in range(4)], "while (1) {",
+                      "    if (PORTAbits.RA6 == 0) { LATD = 0b11011111; } else { LATD = 0; }", "}"]
+        text, table = self.program(setup_only)
+        target, _ = guess(text, table, regs, pins, digits="low")
+        mux, switch = target["circuit"]
+        self.assertEqual((mux["type"], mux["port"], [d["pin"] for d in mux["digits"]]),
+                         ("seg7mux", "D", ["RB0", "RB1", "RB2", "RB3"]))
+        self.assertEqual(switch["switches"][0]["pin"], "RA6")
+
+    def test_loops_one_after_another_on_a_display_and_after_a_press(self):
+        shapes = "const char seg[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66};"
+        phase = ["    for (int i = 0; i < 100; i++) {",
+                 "        PORTC = seg[{a}]; PORTAbits.RA0 = 0; __delay_ms(1); PORTAbits.RA0 = 1;",
+                 "        PORTC = seg[{b}]; PORTAbits.RA1 = 0; __delay_ms(1); PORTAbits.RA1 = 1;", "    }"]
+        body = ["TRISA = 0;", "while (1) {", *[ln.replace("{a}", "1").replace("{b}", "2") for ln in phase],
+                *[ln.replace("{a}", "3").replace("{b}", "4") for ln in phase], "}"]
+        text, table = self.program(body, before=shapes)
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        self.assertEqual(target["circuit"]["type"], "seg7mux")
+        lines = text.split("\n")
+        heads = [n for n, ln in enumerate(lines, 1) if ln.strip().startswith("for (")]
+        self.assertEqual(target["trace"][2:], [x for h in heads for x in (
+            {"run_to": h + 1, "show": h}, {"until_write": ["PORTC", "PORTA"], "count": 24, "wait_ms": 3000})])
+        # a melody inside the if that tests the switch: press, let go, then the start of each later note
+        note = ["    for (int i = 0; i < 10; i++) {", "        BZ = 1; __delay_us({d}); BZ = 0; __delay_us({d});", "    }"]
+        body = ["while (1)", "if (SW0 == 1) {", *[ln.replace("{d}", d) for d in ("500", "400", "300") for ln in note], "}"]
+        text, table = self.program(body, before="#define BZ PORTCbits.RC0\n#define SW0 !PORTAbits.RA0")
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        lines = text.split("\n")
+        at_if = next(n for n, ln in enumerate(lines, 1) if ln.strip().startswith("if (SW0"))
+        heads = [n for n, ln in enumerate(lines, 1) if ln.strip().startswith("for (")]
+        trace = target["trace"]
+        start = trace.index({"set": {"RA0": 0}, "note": "SW0 を押す"})
+        self.assertEqual(trace[start + 1:], [
+            {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
+            {"set": {"RA0": 1}, "note": "SW0 を離す（並んだループはスイッチを見ないので続く）"},
+            {"run_to": heads[1] + 1, "show": heads[1]}, {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
+            {"run_to": heads[2] + 1, "show": heads[2]}, {"until_write": "PORTC", "count": 4, "wait_ms": 3000},
+            {"run_to": at_if}, {"until_write": "PORTC", "count": 2, "wait_ms": 3000}])
+
+    def test_swapped_for_is_noted_and_not_walked(self):
+        body = ["while (1) {", "    for (int i = 0; i++; i < 500) {", "        PORTC = 1; __delay_ms(1);", "    }",
+                "    for (int i = 0; i++; i < 500) {", "        PORTC = 2; __delay_ms(1);", "    }", "}"]
+        text, table = self.program(body)
+        target, facts = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        self.assertEqual(facts["sections"], 0)                       # a run_to into them would never arrive
+        heads = [str(n) for n, ln in enumerate(text.split("\n"), 1) if ln.strip().startswith("for (")]
+        for h in heads:
+            self.assertIn("入れ替わっている", target["notes"][h])
+            self.assertIn("1 度も動かない", target["notes"][h])
+
+    def test_int_pressed_while_another_switch_holds_the_display(self):
+        isr = ("void __interrupt() isr(void)\n{\n    PORTCbits.RC0 = 0;\n    while (PORTBbits.RB0 == 1) { }\n"
+               "    INTCONbits.INTF = 0;\n}")
+        text, table = self.program(["TRISB = 0xFF;", "INTCONbits.INTE = 1;", "INTCONbits.GIE = 1;", "while (1) {",
+                                    "    if (PORTBbits.RB4 == 1) PORTCbits.RC0 = 1;", "}"], before=isr)
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        notes = [a["note"] for a in target["trace"] if "set" in a]
+        # RB0 alone changes nothing (RC0 is dark unless RB4 is held): hold RB4, then press RB0
+        self.assertEqual(notes[-4:], ["RB4 を押したままにする", "RB4 を押したまま RB0 を押す（INT の割り込み）",
+                                      "RB0 を離す", "RB4 を離す"])
+
+    def test_switch_left_as_output_is_pressed_once(self):
+        text, table = self.program(["TRISA = 0x01;", "while (1) {", "    if (PORTAbits.RA1 == 0) { n++; PORTC = n; }",
+                                    "    if (PORTAbits.RA0 == 0) { n++; PORTC = n; }", "}"], before="unsigned char n;")
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        notes = [a["note"] for a in target["trace"] if "set" in a]
+        self.assertEqual(sum(1 for n in notes if n.startswith("RA1 を押す")), 1)    # reads nothing: once is enough
+        self.assertEqual(sum(1 for n in notes if n.startswith("RA0 を押す")), 3)    # counted presses
+
+    def test_digit_order_from_places_only_when_they_differ(self):
+        same = ["TRISA = 0;", "while (1) {", "    PORTC = seg[n % 10]; PORTAbits.RA0 = 0; __delay_ms(5); PORTAbits.RA0 = 1;",
+                "    PORTC = seg[n % 10]; PORTAbits.RA1 = 0; __delay_ms(5); PORTAbits.RA1 = 1;", "}"]
+        target, _ = self.seg(same, before="const char seg[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66};\nunsigned char n;")
+        self.assertIn("ピンの順と仮定", target["summary"])
+        self.assertNotIn("表の添字の位", target["summary"])
+
     def test_old_c_builds_as_c90(self):
         calls = []
 
@@ -1262,7 +1401,8 @@ class WaveTest(unittest.TestCase):
 class RenderTest(TempDirTest):
     def test_examples_are_up_to_date(self):
         self.assertEqual(EXAMPLE_NAMES, ["buttons", "buzzer", "calculator", "dcmotor", "lcd", "led", "motor",
-                                         "seg7_counter", "seg7_mux", "servo", "stopwatch", "switch_leds", "voltmeter"])
+                                         "seg7_counter", "seg7_mux", "seg7_mux_count", "servo", "stopwatch", "switch_leds",
+                                         "voltmeter"])
         for name in EXAMPLE_NAMES:
             with self.subTest(example=name):
                 project = load(EXAMPLES / name)

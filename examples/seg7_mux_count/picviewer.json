@@ -1,0 +1,112 @@
+{
+  "title": "2 桁の 7 セグメント LED で数える（count.c、計画は init）",
+  "output": "seg7_mux_count_viewer.html",
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/count.c",
+      "fosc_hz": 4000000,
+      "summary": "2 桁を 5 ms ずつ交互に点け、250 ms ごとに 1 つ数える。計画は picviewer init が作ったもの（一の位の for の終わりへ 3 回、十の位の for の終わりへ 1 回走らせて、数が進むのを見せる）",
+      "fast_forward": 1000,
+      "wait_ms": 20000,
+      "registers": [
+        "OSCCON",
+        "ANSEL",
+        "ANSELH",
+        "TRISA",
+        "TRISC",
+        "PORTA",
+        "PORTC"
+      ],
+      "circuit": {
+        "type": "seg7mux",
+        "port": "C",
+        "digits": [
+          {
+            "pin": "RA0",
+            "active": "low"
+          },
+          {
+            "pin": "RA1",
+            "active": "low"
+          }
+        ]
+      },
+      "trace": [
+        {
+          "run_to": 21
+        },
+        {
+          "step": 7
+        },
+        {
+          "until_write": [
+            "PORTC",
+            "PORTA"
+          ],
+          "count": 40,
+          "wait_ms": 3000
+        },
+        {
+          "run_to": 48,
+          "show": 37
+        },
+        {
+          "until_write": [
+            "PORTC",
+            "PORTA"
+          ],
+          "count": 24,
+          "wait_ms": 3000
+        },
+        {
+          "run_to": 48,
+          "show": 37
+        },
+        {
+          "until_write": [
+            "PORTC",
+            "PORTA"
+          ],
+          "count": 24,
+          "wait_ms": 3000
+        },
+        {
+          "run_to": 48,
+          "show": 37
+        },
+        {
+          "until_write": [
+            "PORTC",
+            "PORTA"
+          ],
+          "count": 24,
+          "wait_ms": 3000
+        },
+        {
+          "run_to": 49,
+          "show": 36
+        },
+        {
+          "until_write": [
+            "PORTC",
+            "PORTA"
+          ],
+          "count": 24,
+          "wait_ms": 3000
+        }
+      ],
+      "notes": {
+        "13": "0-9 の形（ビット 0 が a、ビット 6 が g）",
+        "21": "内部発振器を 4 MHz に",
+        "22": "アナログ入力を使わない",
+        "24": "RA0、RA1 は桁の切り替え",
+        "25": "RC0-RC6 は区画",
+        "26": "両方の桁を消しておく",
+        "40": "十の位を点ける",
+        "44": "一の位を点ける"
+      }
+    }
+  ]
+}

@@ -7,12 +7,14 @@
   const NOTES = ['ド', 'ド#', 'レ', 'レ#', 'ミ', 'ファ', 'ファ#', 'ソ', 'ソ#', 'ラ', 'ラ#', 'シ'];
   const LETTERS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const SPAN = 0.1;          // seconds of recording searched for one full cycle
+  const STARTED = 0.02;      // the pin changed this recently without a full cycle yet: it is just starting
+  const FAR = 35;            // cents from the nearest note beyond which both neighbours are named
 
-  function noteOf(hz) {
-    const n = Math.round(12 * Math.log2(hz / 440)) + 57;              // C0 = 0, A4 = 57
+  function noteOf(hz, n = Math.round(12 * Math.log2(hz / 440)) + 57) {     // C0 = 0, A4 = 57
     const cents = Math.round(1200 * Math.log2(hz / (440 * 2 ** ((n - 57) / 12))));
-    return { name: NOTES[((n % 12) + 12) % 12], letter: `${LETTERS[((n % 12) + 12) % 12]}${Math.floor(n / 12)}`, cents };
+    return { name: NOTES[((n % 12) + 12) % 12], letter: `${LETTERS[((n % 12) + 12) % 12]}${Math.floor(n / 12)}`, cents, n };
   }
+  const signed = (c) => `${c > 0 ? '+' : c < 0 ? '−' : ''}${Math.abs(c)} セント`;
 
   // 1 while the pin is an output driven high
   const levelOf = (pin, U) => (R) => {
@@ -85,23 +87,32 @@
       if (sounding && ctx.instrHz) {
         const hz = 1 / p.period;
         const n = noteOf(hz);
-        const off = Math.abs(n.cents) <= 15 ? '' : `から ${n.cents > 0 ? '+' : ''}${n.cents} セント`;
+        // far from the nearest note: between it and the next one on that side
+        const m = Math.abs(n.cents) > FAR ? noteOf(hz, n.n + (n.cents > 0 ? 1 : -1)) : null;
+        const pair = m ? [n, m].sort((a, b) => a.n - b.n) : null;
+        const near = pair ? `${pair[0].name}（${pair[0].letter}）と ${pair[1].name}（${pair[1].letter}）の間`
+          : `${n.name}（${n.letter}）${Math.abs(n.cents) <= 15 ? '' : `から ${signed(n.cents)}`}`;
         status.push({ label: '音', value: `約 ${U.num(hz, 0)} Hz`, tone: 'on' });
-        status.push({ label: '近い音', value: `${n.name}（${n.letter}）${off}` });
+        status.push({ label: '近い音', value: near });
         status.push({ label: '1 周期', value: ctx.fmtTime(p.period) });
-        text = `${pin} を 1 と 0 に交互に切り替えて、ブザーを約 ${U.num(hz, 0)} Hz で振動させている（${n.name}、${n.letter} に近い${off ? `。${off} ずれる` : ''}）。`
-          + `1 周期 ${ctx.fmtTime(p.period)}${p.high !== null ? `、そのうち 1 の時間 ${ctx.fmtTime(p.high)}` : ''}。`;
+        text = `${pin} を 1 と 0 に交互に切り替えて、ブザーを約 ${U.num(hz, 0)} Hz で振動させている（`
+          + (pair ? `${near}。${n.name} から ${signed(n.cents)}、${m.name} から ${signed(m.cents)}` : `${n.name}、${n.letter} に近い${Math.abs(n.cents) <= 15 ? '' : `。${signed(n.cents)} ずれる`}`)
+          + `）。1 周期 ${ctx.fmtTime(p.period)}${p.high !== null ? `、そのうち 1 の時間 ${ctx.fmtTime(p.high)}` : ''}。`;
         probe = { level: now, hz, note: n.letter };
       } else if (sounding) {
         status.push({ label: '1 周期', value: `${p.period} サイクル` });
         text = `${pin} を 1 と 0 に交互に切り替えている（1 周期 ${p.period} 命令サイクル）。fosc_hz を書くと音の高さ（Hz）が出る。`;
-      } else if (p.cut && p.period === null) {
+      } else if (p.period === null && p.edges > 0 && p.since !== null && p.since <= STARTED) {
+        // switching, but not yet a full cycle since the input change or the start of the recording
+        status.push({ label: '音', value: '（鳴り始め）', tone: 'on' });
+        text = `${pin} を切り替え始めたところで、まだ 1 周期分の記録が無い（音の高さは次の 1 周期で分かる）。`;
+      } else if (p.cut && p.period === null && p.edges === 0) {
         // the stretch before was run without stopping at the writes: the pitch is not in the recording
         status.push({ label: '音', value: '（記録が足りない）' });
         text = `${pin} は今 ${now}。この前は書き込みを止めずに走らせたので、音の高さはまだ分からない（1 周期分の記録が要る）。`;
       } else {
         status.push({ label: '音', value: '鳴っていない' });
-        text = `${pin} は今 ${now} のまま。切り替えていないので音は出ていない。`;
+        text = `${pin} は今 ${now} のまま。${p.input ? '入力を変えてから' : ''}切り替えていないので音は出ていない。`;
       }
       return { status, text, probe };
     },

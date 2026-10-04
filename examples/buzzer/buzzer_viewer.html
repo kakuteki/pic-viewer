@@ -350,7 +350,7 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
   <footer class="foot"><ul id="foot"></ul></footer>
 </div>
 
-<script type="application/json" id="data">{"title":"圧電ブザーでド・レ・ミ（scale.c）","tool":"picviewer 0.6.1","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"RB0 につないだ圧電ブザーを 1 と 0 で振動させ、ド・レ・ミを 0.5 秒ずつ鳴らす。音の高さは 1 と 0 を切り替える間隔で決まる","fosc_hz":4000000,"source_name":"scale.c","source":["// scale.c  圧電ブザーでド・レ・ミを 0.5 秒ずつ鳴らし、0.5 秒休む","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RB0 = 圧電ブザー（もう片方は GND）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","#define BZ PORTBbits.RB0","","void main(void)","{","    unsigned char i;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;","    TRISB  = 0b11111110;        // RB0 だけ出力（ブザー）","    PORTB  = 0b00000000;","","    while (1) {","        for (i = 0; i < 131; i++) {     // ド（262 Hz）: 1.908 ms ずつ 1 と 0","            BZ = 1;","            __delay_us(1908);","            BZ = 0;","            __delay_us(1908);","        }","        for (i = 0; i < 147; i++) {     // レ（294 Hz）","            BZ = 1;","            __delay_us(1701);","            BZ = 0;","            __delay_us(1701);","        }","        for (i = 0; i < 165; i++) {     // ミ（330 Hz）","            BZ = 1;","            __delay_us(1515);","            BZ = 0;","            __delay_us(1515);","        }","        __delay_ms(500);                // 休み","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]}],"steps":[{"kind":"start","exec":null,"next":17,"addr":"0x775","cycles":13,"v":[96,31,63,255,0],"skipped_us":0},{"kind":"step","exec":17,"next":18,"addr":"0x779","cycles":17,"v":[96,31,63,255,0],"skipped_us":0},{"kind":"step","exec":18,"next":19,"addr":"0x77c","cycles":20,"v":[96,0,63,255,0],"skipped_us":0},{"kind":"step","exec":19,"next":20,"addr":"0x77d","cycles":21,"v":[96,0,0,255,0],"skipped_us":0},{"kind":"step","exec":20,"next":21,"addr":"0x781","cycles":25,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"step","exec":21,"next":24,"addr":"0x784","cycles":28,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"run","exec":24,"next":25,"addr":"0x785","cycles":29,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"write","exec":25,"next":26,"addr":"0x788","cycles":32,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":27,"next":28,"addr":"0x793","cycles":1943,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":25,"next":26,"addr":"0x788","cycles":3863,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":27,"next":28,"addr":"0x793","cycles":5774,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"run","exec":30,"next":31,"addr":"0x7a4","cycles":501890,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"write","exec":31,"next":32,"addr":"0x7a7","cycles":501893,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":33,"next":34,"addr":"0x7b3","cycles":503597,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":31,"next":32,"addr":"0x7a7","cycles":505310,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":33,"next":34,"addr":"0x7b3","cycles":507014,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"run","exec":36,"next":37,"addr":"0x7c5","cycles":1004189,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"write","exec":37,"next":38,"addr":"0x7c8","cycles":1004192,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":39,"next":40,"addr":"0x7d2","cycles":1005710,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":37,"next":38,"addr":"0x7c8","cycles":1007237,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":39,"next":40,"addr":"0x7d2","cycles":1008755,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0}],"waves":[],"notes":{"17":"内部発振器を 4 MHz に","18":"アナログ入力を使わない","20":"RB0 だけ出力（ブザー）","24":"ド（262 Hz）: 1.908 ms ずつ 1 と 0","30":"レ（294 Hz）","36":"ミ（330 Hz）","42":"休み","25":"ブザーのピンを 1 にする。ここから 1.908 ms 後に 0 にするので、1 周期 3.8 ms（約 262 Hz、ド）。","27":"0 にする。1 と 0 を繰り返す速さが音の高さになる。","31":"レ: 1.701 ms ずつ（約 294 Hz）。","37":"ミ: 1.515 ms ずつ（約 330 Hz）。"},"circuit":{"type":"buzzer","pin":"RB0","label":"BZ"},"counters":[]}]}</script>
+<script type="application/json" id="data">{"title":"圧電ブザーでド・レ・ミ（scale.c）","tool":"picviewer 0.6.2","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"RB0 につないだ圧電ブザーを 1 と 0 で振動させ、ド・レ・ミを 0.5 秒ずつ鳴らす。音の高さは 1 と 0 を切り替える間隔で決まる","fosc_hz":4000000,"source_name":"scale.c","source":["// scale.c  圧電ブザーでド・レ・ミを 0.5 秒ずつ鳴らし、0.5 秒休む","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RB0 = 圧電ブザー（もう片方は GND）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","#define BZ PORTBbits.RB0","","void main(void)","{","    unsigned char i;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;","    TRISB  = 0b11111110;        // RB0 だけ出力（ブザー）","    PORTB  = 0b00000000;","","    while (1) {","        for (i = 0; i < 131; i++) {     // ド（262 Hz）: 1.908 ms ずつ 1 と 0","            BZ = 1;","            __delay_us(1908);","            BZ = 0;","            __delay_us(1908);","        }","        for (i = 0; i < 147; i++) {     // レ（294 Hz）","            BZ = 1;","            __delay_us(1701);","            BZ = 0;","            __delay_us(1701);","        }","        for (i = 0; i < 165; i++) {     // ミ（330 Hz）","            BZ = 1;","            __delay_us(1515);","            BZ = 0;","            __delay_us(1515);","        }","        __delay_ms(500);                // 休み","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]}],"steps":[{"kind":"start","exec":null,"next":17,"addr":"0x775","cycles":13,"v":[96,31,63,255,0],"skipped_us":0},{"kind":"step","exec":17,"next":18,"addr":"0x779","cycles":17,"v":[96,31,63,255,0],"skipped_us":0},{"kind":"step","exec":18,"next":19,"addr":"0x77c","cycles":20,"v":[96,0,63,255,0],"skipped_us":0},{"kind":"step","exec":19,"next":20,"addr":"0x77d","cycles":21,"v":[96,0,0,255,0],"skipped_us":0},{"kind":"step","exec":20,"next":21,"addr":"0x781","cycles":25,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"step","exec":21,"next":24,"addr":"0x784","cycles":28,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"run","exec":24,"next":25,"addr":"0x785","cycles":29,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"write","exec":25,"next":26,"addr":"0x788","cycles":32,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":27,"next":28,"addr":"0x793","cycles":1943,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":25,"next":26,"addr":"0x788","cycles":3863,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":27,"next":28,"addr":"0x793","cycles":5774,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"run","exec":30,"next":31,"addr":"0x7a4","cycles":501890,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"write","exec":31,"next":32,"addr":"0x7a7","cycles":501893,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":33,"next":34,"addr":"0x7b3","cycles":503597,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":31,"next":32,"addr":"0x7a7","cycles":505310,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":33,"next":34,"addr":"0x7b3","cycles":507014,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"run","exec":36,"next":37,"addr":"0x7c5","cycles":1004189,"v":[96,0,0,254,0],"skipped_us":0},{"kind":"write","exec":37,"next":38,"addr":"0x7c8","cycles":1004192,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":39,"next":40,"addr":"0x7d2","cycles":1005710,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":37,"next":38,"addr":"0x7c8","cycles":1007237,"v":[96,0,0,254,1],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":39,"next":40,"addr":"0x7d2","cycles":1008755,"v":[96,0,0,254,0],"watch":"PORTB","skipped_us":0}],"waves":[],"notes":{"17":"内部発振器を 4 MHz に","18":"アナログ入力を使わない","20":"RB0 だけ出力（ブザー）","24":"ド（262 Hz）: 1.908 ms ずつ 1 と 0","30":"レ（294 Hz）","36":"ミ（330 Hz）","42":"休み","25":"ブザーのピンを 1 にする。ここから 1.908 ms 後に 0 にするので、1 周期 3.8 ms（約 262 Hz、ド）。","27":"0 にする。1 と 0 を繰り返す速さが音の高さになる。","31":"レ: 1.701 ms ずつ（約 294 Hz）。","37":"ミ: 1.515 ms ずつ（約 330 Hz）。"},"circuit":{"type":"buzzer","pin":"RB0","label":"BZ"},"counters":[]}]}</script>
 <script>
 window.PicViewer = { circuits: {}, util: {} };
 /* buzzer: a piezo buzzer between one output pin and GND. The program switches the pin between 1 and 0; the last
@@ -362,12 +362,14 @@ window.PicViewer = { circuits: {}, util: {} };
   const NOTES = ['ド', 'ド#', 'レ', 'レ#', 'ミ', 'ファ', 'ファ#', 'ソ', 'ソ#', 'ラ', 'ラ#', 'シ'];
   const LETTERS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const SPAN = 0.1;          // seconds of recording searched for one full cycle
+  const STARTED = 0.02;      // the pin changed this recently without a full cycle yet: it is just starting
+  const FAR = 35;            // cents from the nearest note beyond which both neighbours are named
 
-  function noteOf(hz) {
-    const n = Math.round(12 * Math.log2(hz / 440)) + 57;              // C0 = 0, A4 = 57
+  function noteOf(hz, n = Math.round(12 * Math.log2(hz / 440)) + 57) {     // C0 = 0, A4 = 57
     const cents = Math.round(1200 * Math.log2(hz / (440 * 2 ** ((n - 57) / 12))));
-    return { name: NOTES[((n % 12) + 12) % 12], letter: `${LETTERS[((n % 12) + 12) % 12]}${Math.floor(n / 12)}`, cents };
+    return { name: NOTES[((n % 12) + 12) % 12], letter: `${LETTERS[((n % 12) + 12) % 12]}${Math.floor(n / 12)}`, cents, n };
   }
+  const signed = (c) => `${c > 0 ? '+' : c < 0 ? '−' : ''}${Math.abs(c)} セント`;
 
   // 1 while the pin is an output driven high
   const levelOf = (pin, U) => (R) => {
@@ -440,23 +442,32 @@ window.PicViewer = { circuits: {}, util: {} };
       if (sounding && ctx.instrHz) {
         const hz = 1 / p.period;
         const n = noteOf(hz);
-        const off = Math.abs(n.cents) <= 15 ? '' : `から ${n.cents > 0 ? '+' : ''}${n.cents} セント`;
+        // far from the nearest note: between it and the next one on that side
+        const m = Math.abs(n.cents) > FAR ? noteOf(hz, n.n + (n.cents > 0 ? 1 : -1)) : null;
+        const pair = m ? [n, m].sort((a, b) => a.n - b.n) : null;
+        const near = pair ? `${pair[0].name}（${pair[0].letter}）と ${pair[1].name}（${pair[1].letter}）の間`
+          : `${n.name}（${n.letter}）${Math.abs(n.cents) <= 15 ? '' : `から ${signed(n.cents)}`}`;
         status.push({ label: '音', value: `約 ${U.num(hz, 0)} Hz`, tone: 'on' });
-        status.push({ label: '近い音', value: `${n.name}（${n.letter}）${off}` });
+        status.push({ label: '近い音', value: near });
         status.push({ label: '1 周期', value: ctx.fmtTime(p.period) });
-        text = `${pin} を 1 と 0 に交互に切り替えて、ブザーを約 ${U.num(hz, 0)} Hz で振動させている（${n.name}、${n.letter} に近い${off ? `。${off} ずれる` : ''}）。`
-          + `1 周期 ${ctx.fmtTime(p.period)}${p.high !== null ? `、そのうち 1 の時間 ${ctx.fmtTime(p.high)}` : ''}。`;
+        text = `${pin} を 1 と 0 に交互に切り替えて、ブザーを約 ${U.num(hz, 0)} Hz で振動させている（`
+          + (pair ? `${near}。${n.name} から ${signed(n.cents)}、${m.name} から ${signed(m.cents)}` : `${n.name}、${n.letter} に近い${Math.abs(n.cents) <= 15 ? '' : `。${signed(n.cents)} ずれる`}`)
+          + `）。1 周期 ${ctx.fmtTime(p.period)}${p.high !== null ? `、そのうち 1 の時間 ${ctx.fmtTime(p.high)}` : ''}。`;
         probe = { level: now, hz, note: n.letter };
       } else if (sounding) {
         status.push({ label: '1 周期', value: `${p.period} サイクル` });
         text = `${pin} を 1 と 0 に交互に切り替えている（1 周期 ${p.period} 命令サイクル）。fosc_hz を書くと音の高さ（Hz）が出る。`;
-      } else if (p.cut && p.period === null) {
+      } else if (p.period === null && p.edges > 0 && p.since !== null && p.since <= STARTED) {
+        // switching, but not yet a full cycle since the input change or the start of the recording
+        status.push({ label: '音', value: '（鳴り始め）', tone: 'on' });
+        text = `${pin} を切り替え始めたところで、まだ 1 周期分の記録が無い（音の高さは次の 1 周期で分かる）。`;
+      } else if (p.cut && p.period === null && p.edges === 0) {
         // the stretch before was run without stopping at the writes: the pitch is not in the recording
         status.push({ label: '音', value: '（記録が足りない）' });
         text = `${pin} は今 ${now}。この前は書き込みを止めずに走らせたので、音の高さはまだ分からない（1 周期分の記録が要る）。`;
       } else {
         status.push({ label: '音', value: '鳴っていない' });
-        text = `${pin} は今 ${now} のまま。切り替えていないので音は出ていない。`;
+        text = `${pin} は今 ${now} のまま。${p.input ? '入力を変えてから' : ''}切り替えていないので音は出ていない。`;
       }
       return { status, text, probe };
     },
@@ -626,13 +637,17 @@ window.PicViewer = { circuits: {}, util: {} };
     return Boolean(next) && next.kind !== 'run' && next.kind !== 'start' && t.steps[i].kind !== 'end';
   };
   // the recorded stretches before step k, newest first, as far back as `span` (seconds, or instruction cycles
-  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut}
-  function history(t, k, span) {
+  // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut, end, top}. With
+  // `ahead` they reach on to the next stop when this stop's values are known to hold until then (top = k + 1)
+  function history(t, k, span, ahead) {
     const timeOf = (i) => { const s = secondsOf(t, t.steps[i]); return s === null ? t.steps[i].cycles : s; };
-    const end = timeOf(k);
+    // not across an input change: the inputs of step k + 1 were set right after stop k, so up to it is after the change
+    const next = t.steps[k + 1];
+    const top = ahead && knownAfter(t, k) && !next.inputs && next.key === undefined ? k + 1 : k;
+    const end = timeOf(top);
     const spans = [];
     let cut = false;
-    for (let i = k - 1; i >= 0; i--) {
+    for (let i = top - 1; i >= 0; i--) {
       const b = timeOf(i + 1);
       if (end - b >= span) break;
       if (!knownAfter(t, i)) { cut = true; break; }
@@ -640,11 +655,12 @@ window.PicViewer = { circuits: {}, util: {} };
       if (b > a) spans.push({ from: a, to: b, R: regsAt(t, t.steps[i]), i });
       if (end - timeOf(i) >= span) break;
     }
-    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end };
+    return { spans, covered: spans.reduce((s, x) => s + x.to - x.from, 0), cut, end, top };
   }
   // a pin's last full cycle before step k, from its level at each stop (level(R) gives 0 or 1): the time from the
   // second last rising edge to the last, and how long it was 1 in it. null when it did not go round twice within
-  // `span` of recorded time. `since` is how long ago its level last changed.
+  // `span` of recorded time. `since` is how long ago its level last changed, `edges` how often it changed in the
+  // recording looked at; `cut` says that recording starts at an unknown stretch (run_to), `input` at an input change.
   function pulse(t, k, level, span) {
     const h = history(t, k, span);
     // inputs changed by the plan (set, press) change what the program does; in the simulation they come only
@@ -653,7 +669,6 @@ window.PicViewer = { circuits: {}, util: {} };
     for (let i = k; i > 0; i--) if (t.steps[i].inputs || t.steps[i].key !== undefined) { since = i - 1; break; }
     const cutAtInput = h.spans.length > 0 && h.spans[h.spans.length - 1].i < since;
     h.spans = h.spans.filter((s) => s.i >= since);
-    h.cut = h.cut || cutAtInput;
     const now = level(regsAt(t, t.steps[k]));
     const seq = [{ at: h.end, v: now }, ...h.spans.map((s) => ({ at: s.from, v: level(s.R) }))];
     // seq: the level from each moment on, newest first; an edge where the level differs from the one before it
@@ -663,12 +678,13 @@ window.PicViewer = { circuits: {}, util: {} };
     }
     const ago = edges.length ? h.end - edges[0].at : null;
     const rises = edges.filter((e) => e.rising);
-    if (rises.length < 2) return { period: null, high: null, duty: null, since: ago, level: now, cut: h.cut };
+    const base = { since: ago, level: now, cut: h.cut, input: cutAtInput, edges: edges.length };
+    if (rises.length < 2) return { ...base, period: null, high: null, duty: null };
     const [r1, r2] = rises;
     const fall = edges.find((e) => !e.rising && e.at > r2.at && e.at <= r1.at);
     const period = r1.at - r2.at;
     const high = fall ? fall.at - r2.at : null;
-    return { period, high, duty: high === null || period <= 0 ? null : high / period, since: ago, level: now, cut: h.cut };
+    return { ...base, period, high, duty: high === null || period <= 0 ? null : high / period };
   }
   PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath, seg7 };
 
@@ -1177,7 +1193,7 @@ window.PicViewer = { circuits: {}, util: {} };
       // seconds since reset of any step (instruction cycles when the clock is not known)
       timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; },
       // the recorded stretches before this step, and a pin's last full cycle (see history and pulse above)
-      history: (span) => history(t, S.step, span),
+      history: (span, ahead) => history(t, S.step, span, ahead),
       pulse: (level, span) => pulse(t, S.step, level, span) };
     const boxes = $('cirBox').children;
     const results = partsOf(t).map((cfg, i) => pluginOf(cfg).update({ ...base, cfg, box: boxes[i] }) || {});
