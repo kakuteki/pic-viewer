@@ -7,3 +7,6 @@ __pycache__/
 
 # compiler output and simulator logs of each example (bundles/ keeps what the page needs)
 examples/*/build/
+
+# local working notes (state, decisions); they mention the course material, so they stay out of the public repo
+/pm/

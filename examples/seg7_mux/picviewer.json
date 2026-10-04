@@ -1,0 +1,42 @@
+{
+  "title": "4 桁の 7 セグメント LED のダイナミック点灯（mux.c）",
+  "output": "seg7_mux_viewer.html",
+  "fast_forward": 1000,
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/mux.c",
+      "fosc_hz": 4000000,
+      "summary": "4 桁を 5 ms ずつ順に点けて 1234 を出し、0.5 秒後に 1235 にする。1 回に点いているのは 1 桁だけ",
+      "wait_ms": 20000,
+      "registers": ["OSCCON", "ANSEL", "ANSELH", "TRISA", "TRISC", "PORTA", "PORTC"],
+      "trace": [
+        { "run_to": 19 },
+        { "step": 8 },
+        { "until_write": ["PORTC", "PORTA"], "count": 40 },
+        { "run_to": 43 },
+        { "until_write": ["PORTC", "PORTA"], "count": 40 }
+      ],
+      "circuit": {
+        "type": "seg7mux",
+        "port": "C",
+        "digits": [
+          { "pin": "RA0", "active": "low" },
+          { "pin": "RA1", "active": "low" },
+          { "pin": "RA2", "active": "low" },
+          { "pin": "RA3", "active": "low" }
+        ]
+      },
+      "notes": {
+        "27": "全部の桁を消しておく（RA0-RA3 を 1 に）。",
+        "31": "数を 4 つの桁に分ける（左の桁から）。",
+        "37": "4 桁で共通の区画の線に、この桁の数字の形を出す。",
+        "38": "この桁だけを 0 にして点ける。ほかの 3 桁は消えている。",
+        "39": "5 ms そのまま。人の目には、4 桁を順に点ける 20 ms の平均が見える。",
+        "40": "全部の桁を消してから、次の桁の形を出す（消さないと前の形が次の桁ににじむ）。",
+        "43": "25 枠（0.5 秒）たったので、数を 1 つ進める。"
+      }
+    }
+  ]
+}

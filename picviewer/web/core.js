@@ -77,7 +77,21 @@
       arrow(mx, my, Math.atan2(q[1] - p[1], q[0] - p[0]) * 180 / Math.PI);
     });
   }
-  PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath };
+  // 7-segment helpers shared by the seg7 and seg7mux views: names by bit (bit 0 = a), the shapes of digits and a
+  // few letters, and the outline of each segment for a digit w wide and h high at (x, y) with strokes t thick
+  const seg7 = {
+    NAMES: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'],
+    SHAPES: { 0x3f: '0', 0x06: '1', 0x5b: '2', 0x4f: '3', 0x66: '4', 0x6d: '5', 0x7d: '6', 0x07: '7', 0x27: '7',
+      0x7f: '8', 0x6f: '9', 0x67: '9', 0x77: 'A', 0x7c: 'b', 0x39: 'C', 0x58: 'c', 0x5e: 'd', 0x79: 'E', 0x71: 'F',
+      0x76: 'H', 0x38: 'L', 0x54: 'n', 0x08: '_', 0x40: '-', 0x73: 'P', 0x3e: 'U', 0x00: '（消灯）' },
+    paths(x, y, w, h, t) {
+      const hs = (yy) => `M${x + t * 0.67} ${yy} L${x + t * 1.22} ${yy - t / 2} H${x + w - t * 1.22} L${x + w - t * 0.67} ${yy} L${x + w - t * 1.22} ${yy + t / 2} H${x + t * 1.22} Z`;
+      const vs = (xx, y0, y1) => `M${xx} ${y0 + t * 0.67} L${xx + t / 2} ${y0 + t * 1.22} V${y1 - t * 1.22} L${xx} ${y1 - t * 0.67} L${xx - t / 2} ${y1 - t * 1.22} V${y0 + t * 1.22} Z`;
+      return { a: hs(y), g: hs(y + h / 2), d: hs(y + h), f: vs(x, y, y + h / 2), b: vs(x + w, y, y + h / 2),
+        e: vs(x, y + h / 2, y + h), c: vs(x + w, y + h / 2, y + h) };
+    },
+  };
+  PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath, seg7 };
 
   // ---------------- data helpers
   const tgt = () => D.targets[S.t];
@@ -569,7 +583,9 @@
     paintRegs(t, st, prev);
     const base = { ...ctxBase(t), st, prev, k: S.step, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null,
       inputs: inputsAt(t, S.step), key: keyAt(t, S.step), regsAt: (step) => regsAt(t, step), fmtTime,
-      instrHz: instrHz(t), seconds: secondsOf(t, st) };
+      instrHz: instrHz(t), seconds: secondsOf(t, st),
+      // seconds since reset of any step (instruction cycles when the clock is not known)
+      timeAt: (step) => { const s = secondsOf(t, step); return s === null ? step.cycles : s; } };
     const boxes = $('cirBox').children;
     const results = partsOf(t).map((cfg, i) => pluginOf(cfg).update({ ...base, cfg, box: boxes[i] }) || {});
     paintStatus(results.flatMap((r) => r.status || []));

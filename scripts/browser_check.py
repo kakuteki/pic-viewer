@@ -249,6 +249,22 @@ def stopwatch():
     check("stopwatch: pressed again, stopped at 5", kind="timeout", digit="5")
 
 
+def seg7_mux():
+    steps = steps_of("seg7_mux")
+    runs = [i for i, s in enumerate(steps) if s["kind"] == "run"]
+    open_page("examples/seg7_mux/seg7_mux_viewer.html")
+    goto(12)
+    check("mux: early on only the first digit has been lit", shown="1   ")
+    goto(runs[0] - 1)
+    check("mux: after a few frames the eye sees 1234", shown="1234")
+    expect("mux: the explanation says one digit at a time", "直前 20 ms の平均" in text_of("cirText"), text_of("cirText"))
+    k = next(i for i in range(runs[0] - 1, 0, -1) if steps[i].get("watch") == "PORTA" and steps[i]["v"][5] != 0x0F)
+    goto(k)
+    check("mux: at a digit switch-on, exactly one digit is on", now=[[0x0E, 0x0D, 0x0B, 0x07].index(steps[k]["v"][5])])
+    ab("click", "#bLast")
+    check("mux: half a second later the count is 1235", shown="1235")
+
+
 def main():
     global failures
     if EXE is None:
@@ -264,6 +280,7 @@ def main():
     calculator()
     voltmeter()
     stopwatch()
+    seg7_mux()
     errors = ab("errors")
     if errors:
         failures += 1

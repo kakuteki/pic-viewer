@@ -6,9 +6,10 @@ from pathlib import Path
 
 from . import bundle as bundle_io
 from .bundle import make_bundle, make_steps, read_source, register_info
-from .compiler import FAST_VAR, compile_target, compiled_name, skipped_per_ms
+from .compiler import FAST_VAR, compile_target, compiled_name, elf_path, skipped_per_ms
 from .linetab import line_at, read_line_table, writer_address
-from .mdb import MdbError, key_stimulus, parse_records, probe_commands, probe_errors, run as mdb_run, trace_commands
+from .mdb import (MdbError, key_stimulus, parse_records, plan_wait_seconds, probe_commands, probe_errors,
+                  run as mdb_run, trace_commands)
 from .picdef import PicDef
 from .project import keypad_keys, keypad_of, plan_lines, plan_pins, plan_watches
 from .toolchain import find_device_file, xc8_version
@@ -61,7 +62,7 @@ def check_names(target, picdef):
 def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=True, probe=True, log=_say):
     work = project.build_dir / target.id
     work.mkdir(parents=True, exist_ok=True)
-    elf = work / (target.source.stem + ".elf")
+    elf = elf_path(target, work)
     if compile:
         fast = f"（__delay_ms を 1/{target.fast_forward} にした版）" if target.fast_forward else ""
         log(f"[{target.id}] XC8 でコンパイル: {target.source_name}{fast}")
@@ -95,9 +96,9 @@ def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=T
                 raise MdbError("\n".join(errors))
         cmds, kinds = trace_commands(target.device, elf, src, target.trace, target.registers,
                                      target.wait_ms, variables, keypad=keypad_setup(target, work))
-        waits = sum(1 for k in kinds if k in ("start", "run", "write"))
         log(f"[{target.id}] シミュレータで実行（{len(kinds)} 回止めてレジスタを読む）")
-        text = mdb_run(mdb, cmds, trace_log, timeout=300 + waits * target.wait_ms / 1000 + len(kinds) * 3)
+        text = mdb_run(mdb, cmds, trace_log,
+                       timeout=300 + plan_wait_seconds(target.trace, target.wait_ms) + len(kinds) * 3)
 
     table = read_line_table(elf.with_suffix(".cmf"), src)
     steps = make_steps(target.trace, parse_records(text, target.registers + variables, src), registers,

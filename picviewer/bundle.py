@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import __version__
 from .mdb import MdbError, absolute_cycles
+from .project import watch_list
 
 SCHEMA = 1
 
@@ -47,7 +48,7 @@ def expand_plan(plan):
             started = True
         else:
             segment += 1
-            new = [{"kind": "write", "want": None, "show": None, "watch": a["until_write"],
+            new = [{"kind": "write", "want": None, "show": None, "watch": watch_list(a),
                     "until": a.get("until"), "segment": segment}] * a["count"]
         new = [dict(e) for e in new]
         if inputs or notes or key is not None:
@@ -72,8 +73,16 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
         raise MdbError(f"止まった回数 {len(records)} が計画の {len(expected)} 回と合わない")
     cycles = absolute_cycles(records, [e["kind"] for e in expected])
     steps, ended, carry, last_kind = [], set(), {}, {}
+    here = None                      # the line the program was at after the previous stop, kept or dropped
+    values = None                    # the register values read at that stop
     for i, (e, rec, cyc) in enumerate(zip(expected, records, cycles)):
-        timeout = rec.get("timeout", False)
+        # the absence of a breakpoint message means our Halt stopped it; only stops after Continue can be that
+        timeout = rec.get("timeout", False) and e["kind"] != "step"
+        next_line = rec["line"]
+        if next_line is None and line_of and rec["addr"] and not rec.get("where"):
+            next_line = line_of(int(rec["addr"], 16))     # code the compiler added inside the program
+        before, here = here, next_line
+        before_values, values = values, rec["values"]
         if e["kind"] == "write" and (e["segment"] in ended or (timeout and last_kind.get(e["segment"]) == "timeout")):
             carry.update({k: e[k] for k in ("inputs", "input_note", "key") if k in e})   # dropped stop: keep its inputs
             continue
@@ -83,13 +92,13 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
                            f"（止めた所は {where}）。入力（set）か wait_ms を見直す")
         if e["want"] is not None and rec["line"] != e["want"]:
             raise MdbError(f"{i + 1} 回目は {e['want']} 行目で止まるはずが {rec['line']} 行目で止まった")
-        if rec["line"] is None and e["kind"] == "step":
+        if next_line is None and e["kind"] == "step" and not rec.get("where"):
             raise MdbError(f"{i + 1} 回目の停止で行番号が読めない（行番号の無いところで止まった）")
         kind = e["kind"]
         if kind == "start":
             executed = None
         elif kind == "step":
-            executed = steps[-1]["next"]
+            executed = before
         elif kind == "run":
             executed = e["show"]
         elif timeout:
@@ -97,20 +106,22 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
         elif e.get("until") and rec["line"] == e["until"]:
             kind, executed = "end", e["until"]     # reached the closing line: no more writes are collected
             ended.add(e["segment"])
+        elif rec.get("where"):
+            executed = None                        # written by code in another file (XC8's or an included one)
         else:
             line = writer_line(int(rec["addr"], 16)) if writer_line and rec["addr"] else None
             executed = line or rec["line"]
         if e["kind"] == "write":
             last_kind[e["segment"]] = kind
-        next_line = rec["line"]
-        if next_line is None and line_of and rec["addr"] and not rec.get("where"):
-            next_line = line_of(int(rec["addr"], 16))     # code the compiler added inside the program
         step = {"kind": kind, "exec": executed, "next": next_line, "addr": rec["addr"], "cycles": cyc,
                 "v": [rec["values"][r["name"]] & r["mask"] for r in registers]}
         if rec.get("where"):
             step["where"] = rec["where"]
         if e["kind"] == "write":
-            step["watch"] = e["watch"]
+            watched = e["watch"]
+            changed = [r for r in watched if before_values and r in rec["values"] and rec["values"][r] != before_values.get(r)]
+            # one name when one register is watched, or when only one of several changed
+            step["watch"] = changed[0] if len(watched) > 1 and len(changed) == 1 else " か ".join(watched)
         inputs = {**carry, **{k: e[k] for k in ("inputs", "input_note", "key") if k in e}}
         carry = {}
         if inputs.get("inputs"):

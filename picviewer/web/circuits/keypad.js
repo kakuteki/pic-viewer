@@ -104,7 +104,8 @@
       const g = svg.querySelector('#gCur');
       g.replaceChildren();
       const at = key ? find(c, key) : null;
-      const flowing = at && low[at.r];
+      // current flows while the held key's row is at 0; trust the recorded column when it says otherwise
+      const flowing = at && low[at.r] && reads[at.col] !== 1;
       if (flowing) {
         // from the pull-up up the column to the key, then along the row into the pin that sinks it
         const x = colX(at.col);

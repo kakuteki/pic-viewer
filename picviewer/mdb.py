@@ -6,7 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .toolchain import BELOW_NORMAL, NO_WINDOW
+from .project import watch_list
+from .toolchain import BELOW_NORMAL, NO_WINDOW, ascii_path
 
 
 class MdbError(Exception):
@@ -29,10 +30,11 @@ def run(mdb, commands, log_path, timeout):
     """Write the commands to <log>.mdb, run mdb on it, save stdout to the log and return it."""
     log_path = Path(log_path)
     script = log_path.with_suffix(".mdb")
-    script.write_text("\n".join(commands) + "\n", encoding="ascii", newline="\n")
+    # mdb.bat starts Java with -Dfile.encoding=UTF-8, so paths with Japanese names go through as UTF-8
+    script.write_text("\n".join(commands) + "\n", encoding="utf-8", newline="\n")
     if str(mdb).lower().endswith(".bat"):
         # one more pair of quotes around the whole line is what cmd needs when both paths have spaces
-        args, shell = f'"{mdb}" "{script}"', True
+        args, shell = f'"{mdb}" "{short(script)}"', True
     else:
         args, shell = [str(mdb), str(script)], False
     # below normal priority, inherited by the java process: a long batch must not make the machine sluggish
@@ -57,7 +59,12 @@ def run(mdb, commands, log_path, timeout):
 
 
 def header(device, elf):
-    return [f"Device {device}", "Hwtool SIM", f'Program "{Path(elf).as_posix()}"']
+    return [f"Device {device}", "Hwtool SIM", f'Program "{short(elf).as_posix()}"']
+
+
+def short(path):
+    """An ASCII form of an existing path for mdb when there is one (mdb reads UTF-8, the short name is safer)."""
+    return ascii_path(path) or Path(path)
 
 
 def probe_commands(device, elf, source_name, lines, registers):
@@ -142,7 +149,7 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
             cmds.extend(f"write pin {pin} {level}" for pin, level in action["set"].items())
         elif "press" in action:
             let_go()
-            cmds.append(f'Stim "{Path(keypad["scl"][action["press"]]).as_posix()}"')
+            cmds.append(f'Stim "{short(keypad["scl"][action["press"]]).as_posix()}"')
             held = action["press"]
         elif "release" in action:
             let_go()
@@ -158,7 +165,8 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
             started = True
         elif "until_write" in action:
             clear()
-            add(f"Watch {action['until_write']} W")
+            for reg in watch_list(action):              # several watchpoints: a write to any of them stops
+                add(f"Watch {reg} W")
             if action.get("until"):
                 add(f"Break {source_name}:{action['until']}")
             wait = action.get("wait_ms", wait_ms)
@@ -175,24 +183,21 @@ def parse_records(text, registers, source_name=None):
     A stop in another file (XC8's own routines such as awmod.c for %) keeps that file's name in 'where'
     and no line: its line number belongs to that file, not to source_name.
 
-    'timeout' marks a stop made by our Halt after a Wait ran out: mdb prints "Simulator halted" right
-    after the Halt, and no "Single breakpoint" (which a breakpoint or watchpoint hit always prints).
+    'timeout' is True when no "Single breakpoint" was printed for the stop. A breakpoint or watchpoint hit
+    always prints it, so after Continue (or Run) its absence means our Halt stopped the program when the
+    Wait ran out; make_steps applies this only to stops that came from Continue, not to steps.
     'line' is None where the ELF has no line for the address (code the compiler added); whether that
     is acceptable depends on the kind of stop, which make_steps knows.
     """
     records = []
     values, line, addr, want, file = {}, None, None, None, None
-    hit = halted = False
-    prev = ""
+    hit = False
     for raw in text.splitlines():
         s = raw.strip()
         if not s:
             continue
         if s.startswith("Single breakpoint"):
             hit = True
-        elif s == "Simulator halted" and prev == "Halt":
-            halted = True
-        prev = s
         m = re.match(r"source line:\s*(\d+)", s)
         if m:
             line = int(m.group(1))
@@ -208,7 +213,7 @@ def parse_records(text, registers, source_name=None):
         m = re.match(r"Stopwatch cycle count = (\d+)", s)
         if m:
             missing = [r for r in registers if r not in values]
-            timeout = halted and not hit
+            timeout = not hit
             if missing:
                 raise MdbError(f"{len(records) + 1} 回目の停止で値が読めないレジスタ: {missing}")
             where = None
@@ -217,7 +222,7 @@ def parse_records(text, registers, source_name=None):
             records.append({"line": line, "addr": addr, "reading": int(m.group(1)),
                             "values": {r: values[r] for r in registers}, "timeout": timeout, "where": where})
             values, line, addr, want, file = {}, None, None, None, None
-            hit = halted = False
+            hit = False
             continue
         m = re.fullmatch(r"(\w+)=(.*)", s)
         if m:
@@ -232,6 +237,17 @@ def parse_records(text, registers, source_name=None):
         if want and re.fullmatch(r"-?\d+", s):
             values[want], want = int(s), None
     return records
+
+
+def plan_wait_seconds(plan, default_wait_ms):
+    """The longest the waits of a plan can take, in seconds (each run_to and each until_write stop)."""
+    total = 0
+    for a in plan:
+        if "run_to" in a:
+            total += default_wait_ms
+        elif "until_write" in a:
+            total += a["count"] * a.get("wait_ms", default_wait_ms)
+    return total / 1000
 
 
 def absolute_cycles(records, kinds):

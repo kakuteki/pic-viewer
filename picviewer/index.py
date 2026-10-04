@@ -5,6 +5,7 @@ import html
 import re
 from collections import Counter
 from pathlib import Path
+from urllib.parse import quote
 
 from . import bundle as bundle_io
 from .mdb import MdbError
@@ -15,7 +16,8 @@ ERROR_FILE = "error.txt"         # written into a project's build folder when a 
 
 
 def natural(name):
-    return [int(s) if s.isdigit() else s.lower() for s in re.split(r"(\d+)", str(name))]
+    # isdecimal, not isdigit: a circled 1 is a digit that int() cannot read
+    return [int(s) if s.isdecimal() else s.lower() for s in re.split(r"(\d+)", str(name))]
 
 
 def find_projects(root):
@@ -68,7 +70,7 @@ def entry(root, path):
 
 def card(e):
     esc = html.escape
-    name = f'<a href="{esc(e["page"])}">{esc(e["name"])}</a>' if e["page"] else f'<b>{esc(e["name"])}</b>'
+    name = f'<a href="{esc(quote(e["page"]))}">{esc(e["name"])}</a>' if e["page"] else f'<b>{esc(e["name"])}</b>'
     facts = []
     for t in e["targets"]:
         if t["steps"] is None:

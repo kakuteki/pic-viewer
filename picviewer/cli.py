@@ -168,7 +168,7 @@ def cmd_render(args):
 
 
 def cmd_wave(args):
-    from .compiler import compiled_name
+    from .compiler import compiled_name, elf_path
     from .mdb import run as mdb_run
     from .project import load
     from .wave import parse_samples, summarize, wave_commands
@@ -176,7 +176,7 @@ def cmd_wave(args):
     t = project.target(args.target)
     tc = _toolchain(args)
     work = project.build_dir / t.id
-    elf = work / (t.source.stem + ".elf")
+    elf = elf_path(t, work)
     if not elf.is_file():
         print(f"ELF が無い: {elf}（先に picviewer build）")
         return 1
@@ -229,7 +229,27 @@ def _sources(raw_paths):
     return [f.resolve() for f in out]
 
 
+def record_failure(src, project_dir, device, error):
+    """A program that does not compile still gets a project, so that the index lists it with the reason."""
+    import json
+    from .index import ERROR_FILE
+    from .project import load
+    project_dir = Path(project_dir)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    out = project_dir / "picviewer.json"
+    if not out.exists():
+        rel = Path(os.path.relpath(src, project_dir.resolve())).as_posix() if src.drive == project_dir.resolve().drive else src.as_posix()
+        project = {"title": src.stem, "output": f"{src.stem}_viewer.html", "targets": [{
+            "id": device.lower(), "device": device, "source": rel,
+            "summary": "コンパイルできない（理由は一覧のページに出る）", "registers": ["STATUS"], "trace": [{"run_to": 1}]}]}
+        out.write_text(json.dumps(project, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    build = load(out).build_dir
+    build.mkdir(parents=True, exist_ok=True)
+    (build / ERROR_FILE).write_text(f"{error}\n", encoding="utf-8")
+
+
 def cmd_init(args):
+    from .compiler import CompileError
     from .init import init_source
     sources = _sources(args.sources)
     base = Path(os.path.commonpath([str(s.parent) for s in sources]))
@@ -246,8 +266,10 @@ def cmd_init(args):
                 raise
             failed += 1
             print(f"picviewer: {src.name}: {e}", file=sys.stderr, flush=True)
+            if isinstance(e, CompileError):
+                record_failure(src, project_dir, args.device, e)
             continue
-        out = f"PORT{f['out']}{'（7 セグ）' if f['seg7'] else ''}" if f["out"] else "なし"
+        out = f"{f['out']}{'（7 セグ）' if f['seg7'] else ''}" if f["out"] else "なし"
         sw = "、".join(f["switches"]) or "なし"
         print(f"{project_dir.as_posix()}/picviewer.json: 最初の行 {f['first']}、初期設定 {f['setup']} 行、"
               f"出力 {out}、スイッチ {sw}{'、入力待ちから始まる' if f['wait_loop'] else ''}", flush=True)

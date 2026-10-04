@@ -13,13 +13,15 @@ from picviewer import __version__
 from picviewer.bundle import dumps, expand_plan, make_steps, register_info
 from picviewer.cli import _sources, build_parser
 from picviewer.cli import main as cli_main
-from picviewer.compiler import FAST_VAR, compiled_name, fast_define, fast_source, skipped_per_ms
-from picviewer.index import ERROR_FILE, find_projects, index_html
-from picviewer.init import analyze, guess
+from picviewer.compiler import FAST_VAR, CompileError, compat_source, compiled_name, fast_define, fast_source, skipped_per_ms
+from picviewer.index import ERROR_FILE, find_projects, index_html, natural
+from picviewer.init import analyze, guess, init_source
 from picviewer.linetab import line_at, read_line_table, writer_address
-from picviewer.mdb import MdbError, absolute_cycles, key_stimulus, parse_records, probe_errors, trace_commands
+from picviewer.mdb import (MdbError, absolute_cycles, key_stimulus, parse_records, plan_wait_seconds, probe_errors,
+                           trace_commands)
 from picviewer.picdef import PicDef
-from picviewer.project import ProjectError, Target, keypad_keys, keypad_of, load, parse_plan, pin_level
+from picviewer.project import (ProjectError, Target, ascii_build_dir, keypad_keys, keypad_of, load, parse_plan,
+                               pin_level)
 from picviewer.render import load_bundles, render_html
 from picviewer.server import listing_html, make_server
 from picviewer.toolchain import ENV_XC8, find_device_file, find_xc8, version_key
@@ -73,6 +75,8 @@ Stopwatch cycle count = 8 (8 \u00b5s)
 Continue
 Running
 Wait 600000
+Single breakpoint: @0x7
+Simulator halted
 Stop at
 \taddress:0x7e1
 \tsource line:20
@@ -87,6 +91,8 @@ Stopwatch cycle count = 517 (517 \u00b5s)
 Continue
 Running
 Wait 600000
+Single breakpoint: @0x7
+Simulator halted
 Stop at
 \taddress:0x7e1
 \tsource line:20
@@ -150,6 +156,8 @@ Breakpoint 0 at file led.c, line 13.
 Run
 Running
 Wait 600000
+Single breakpoint: @0x7de
+Simulator halted
 Stop at
 \taddress:0x7de
 \tfile:/work/led.c
@@ -178,6 +186,8 @@ Breakpoint 1 at file led.c, line 20.
 Continue
 Running
 Wait 600000
+Single breakpoint: @0x7f0
+Simulator halted
 Print TRISB
 Stop at
 \taddress:0x7f0
@@ -429,6 +439,16 @@ class ProjectTest(TempDirTest):
             with self.subTest(data=data), self.assertRaises(ProjectError):
                 load(self.write(data))
 
+    def test_circuit_values_are_checked(self):
+        t = load(self.write({**self.base(), "circuit": [{"type": "lcd"}]})).targets[0]
+        self.assertEqual(t.circuit, [{"type": "lcd"}])                     # a project-level list is the default
+        t = load(self.write({**self.base(circuit=None), "circuit": {"type": "led"}})).targets[0]
+        self.assertEqual(t.circuit["type"], "led")                        # null: take the project's
+        for data in ({**self.base(circuit={"type": "led"}), "circuit": [{"type": "lcd"}]},
+                     self.base(circuit="led"), {**self.base(), "circuit": 3}):
+            with self.subTest(data=data), self.assertRaises(ProjectError):
+                load(self.write(data))
+
     def test_plan_show_defaults_to_line(self):
         plan = parse_plan([{"run_to": 5}, {"run_to": 9}], "t")
         self.assertEqual(plan[1], {"run_to": 9, "show": 9})
@@ -508,6 +528,27 @@ class MdbTest(unittest.TestCase):
         self.assertIn("wait until RB1 == '0';", scl)
         self.assertIn("RB5 <= '1';", scl)
 
+    def test_watch_several_registers(self):
+        plan = parse_plan([{"run_to": 3}, {"until_write": ["PORTC", "PORTA", "PORTC"], "count": 2}], "t")
+        self.assertEqual(plan[1]["until_write"], ["PORTC", "PORTA", "PORTC"])
+        cmds, kinds = trace_commands("PIC16F999", Path("/w/a.elf"), "a.c", plan, ["PORTA", "PORTC"], 1000)
+        self.assertEqual([c for c in cmds if c.startswith("Watch")], ["Watch PORTC W", "Watch PORTA W"])
+        regs = [{"name": "PORTA", "mask": 0xFF, "bits": []}, {"name": "PORTC", "mask": 0xFF, "bits": []}]
+        rec = lambda line, a, c, reading: {"line": line, "addr": "0x7cb", "reading": reading, "timeout": False,
+                                           "values": {"PORTA": a, "PORTC": c}}
+        steps = make_steps(plan, [rec(3, 15, 0, 5), rec(9, 15, 6, 9), rec(10, 14, 6, 9)], regs, writer_line=lambda a: 8)
+        self.assertEqual([s["watch"] for s in steps[1:]], ["PORTC", "PORTA"])   # the one that changed
+        with self.assertRaises(ProjectError):
+            parse_plan([{"run_to": 3}, {"until_write": [], "count": 2}], "t")
+
+    def test_timeout_is_the_missing_hit(self):
+        # the halt message may come after other output: only the absence of a hit decides
+        log = ("Continue\nRunning\nWait 3000\nHalt\nPrint PORTC\nSimulator halted\nStop at\n\taddress:0x7f4\n"
+               "\tsource line:15\nPORTC=\n1\nStopwatch\nStopwatch cycle count = 9\n")
+        self.assertTrue(parse_records(log, ["PORTC"])[0]["timeout"])
+        plan = [{"run_to": 3}, {"until_write": "PORTC", "count": 4, "wait_ms": 60000}, {"run_to": 9}]
+        self.assertEqual(plan_wait_seconds(plan, 20000), 20 + 240 + 20)
+
     def test_stop_in_a_library(self):
         log = ("Halt\nSimulator halted\nPrint PORTC\nStop at\n\taddress:0xe2\n"
                "\tfile:C:/Program Files (x86)/Microchip/MPLABXC8/v3.0.0/pic/sources/c99/common/awdiv.c\n"
@@ -561,12 +602,26 @@ class FastForwardTest(unittest.TestCase):
         self.assertIn("__delay_us((x) * 100UL)", fast_define(10))
         self.assertEqual([skipped_per_ms(f) for f in (10, 100, 1000)], [900, 990, 999])
 
+    def test_old_interrupt_form(self):
+        text, n = compat_source("void interrupt intr(void)\n{\n}\nvoid interrupt low_priority tick(void) {}\n")
+        self.assertEqual(n, 2)
+        self.assertEqual(text.splitlines()[0], "void __interrupt() intr(void)")     # same line, line numbers kept
+        self.assertIn("void __interrupt(low_priority) tick(void)", text)
+
     def test_compiled_name(self):
         def name(src):
             return compiled_name(Target(id="a", device="PIC16F886", source=Path(src), source_name=src,
                                         registers=[], trace=[]))
         self.assertEqual(name("/w/pic1-00.xc8"), "pic1-00.c")      # XC8 refuses .xc8 (error 894)
         self.assertEqual(name("/w/led.c"), "led.c")
+        self.assertRegex(name("/w/点滅.c"), r"^src_[0-9a-f]{8}\.c$")  # XC8 cannot open a name that is not ASCII
+
+    def test_build_folder_with_japanese_path(self):
+        self.assertEqual(ascii_build_dir(Path("/w/led/build")), Path("/w/led/build"))
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": "/local"}):
+            moved = ascii_build_dir(Path("/w/点滅/build"))
+        self.assertEqual(moved.parent, Path("/local/picviewer/build"))
+        self.assertTrue(str(moved).isascii())
 
 
 class BundleTest(unittest.TestCase):
@@ -593,7 +648,7 @@ class BundleTest(unittest.TestCase):
         table = [(0x7C0, 13), (0x7C7, 17), (0x7CB, 18), (0x7DE, 19), (0x7E1, 20)]
         plan = [{"set": {"RB0": "high"}, "note": "スイッチ"},
                 {"until_write": "PORTC", "count": 3, "until": 20}]
-        start = "Stop at\n\taddress:0x7c0\n\tsource line:13\nPORTC=0\npicviewer_delay_ms=0\nStopwatch cycle count = 5\n"
+        start = "Single breakpoint: @0x7c0\nStop at\n\taddress:0x7c0\n\tsource line:13\nPORTC=0\npicviewer_delay_ms=0\nStopwatch cycle count = 5\n"
         records = parse_records(start + WRITE_LOG, ["PORTC", FAST_VAR])
         plan = [{"run_to": 13}] + plan
         regs = [{"name": "PORTC", "mask": 0xFF, "bits": []}]
@@ -635,6 +690,19 @@ class BundleTest(unittest.TestCase):
         with self.assertRaisesRegex(MdbError, "行番号"):
             make_steps([{"run_to": 13}, {"step": 1}], [self.rec(13, 0, 5), self.rec(None, 0, 6)], regs)
 
+    def test_step_after_dropped_stops_and_writes_elsewhere(self):
+        regs = [{"name": "PORTC", "mask": 0xFF, "bits": []}]
+        plan = [{"run_to": 13}, {"until_write": "PORTC", "count": 3}, {"step": 1}]
+        records = [self.rec(13, 0, 5), self.rec(18, 1, 9), self.rec(31, 1, 900, True), self.rec(33, 1, 900, True),
+                   self.rec(34, 1, 905)]                        # Step keeps counting after the last resume
+        steps = make_steps(plan, records, regs, writer_line=lambda a: 17)
+        self.assertEqual([s["kind"] for s in steps], ["start", "write", "timeout", "step"])
+        self.assertEqual(steps[3]["exec"], 33)                       # where the dropped stop left the program
+        lcd = {**self.rec(None, 2, 9), "where": "lcd.h"}
+        steps = make_steps([{"run_to": 13}, {"until_write": "PORTC", "count": 1}], [self.rec(13, 0, 5), lcd], regs,
+                           writer_line=lambda a: 17, line_of=lambda a: 17)
+        self.assertEqual((steps[1]["exec"], steps[1]["next"], steps[1]["where"]), (None, None, "lcd.h"))
+
     def test_key_events(self):
         plan = [{"run_to": 13}, {"press": "5", "note": "5 を押す"}, {"run_to": 20, "show": 20},
                 {"release": True, "note": ""}, {"until_write": "PORTC", "count": 1}]
@@ -650,7 +718,7 @@ class InitTest(unittest.TestCase):
     def test_analyze(self):
         info = analyze(COURSE_SRC)
         self.assertEqual((info["main"], info["loop"], info["fosc"]), (7, 14, 4000000))   # not the comment on 13
-        self.assertEqual(info["writes"]["C"], 2)                 # LED = 0 and PORTC = 0 do not count
+        self.assertEqual(info["writes"], {"PORTC": 2})          # LED = 0 and PORTC = 0 do not count
         self.assertEqual(info["reads"], {"RA0": True, "RA1": False})
         self.assertEqual(info["names"], {"RA0": "SW0", "RA1": "sw1"})
         self.assertEqual(info["tris"], {"A": 0x0F, "C": 0})
@@ -659,7 +727,7 @@ class InitTest(unittest.TestCase):
 
     def test_guess(self):
         target, facts = guess(COURSE_SRC, COURSE_TABLE, DEVICE_REGS, DEVICE_PINS)
-        self.assertEqual((facts["first"], facts["setup"], facts["out"]), (9, 5, "C"))
+        self.assertEqual((facts["first"], facts["setup"], facts["out"]), (9, 5, "PORTC"))
         self.assertEqual(target["registers"], ["OSCCON", "ANSEL", "TRISA", "TRISC", "PORTA", "PORTC"])
         self.assertEqual(target["circuit"]["switches"], [{"pin": "RA0", "active": "low", "label": "SW0"},
                                                          {"pin": "RA1", "active": "high", "label": "sw1"}])
@@ -681,13 +749,122 @@ class InitTest(unittest.TestCase):
         bank = COURSE_SRC.replace("if (SW0) { LED = 0xFF; }", "if (0) { }").replace(
             "else if (sw1 == ON) { LED = 0x0F; }", "else if (1) { LED = ~PORTA; }")
         target, facts = guess(bank, COURSE_TABLE, DEVICE_REGS, DEVICE_PINS)
-        self.assertEqual(facts["switches"], [f"RA{b}(low)" for b in range(4)])   # TRISA = 0b00001111
+        self.assertEqual(facts["switches"], ["RA0(low)", "RA1(low)"])     # the pins the program names on PORTA
+        unnamed = bank.replace("#define SW0 !PORTAbits.RA0", "").replace("#define sw1 PORTAbits.RA1", "")
+        target, facts = guess(unnamed, COURSE_TABLE, DEVICE_REGS, DEVICE_PINS)
+        self.assertEqual(facts["switches"], [f"RA{b}(low)" for b in range(4)])   # else TRISA = 0b00001111
         wait = COURSE_SRC.replace("    while (1) {", "    while (SW0 == 0);\n    while (1) {")
         target, facts = guess(wait, COURSE_TABLE, DEVICE_REGS, DEVICE_PINS)
         self.assertTrue(facts["wait_loop"])
         self.assertIn("set", target["trace"][3])                  # pressed right after the start-up lines
         with self.assertRaises(ProjectError):
             guess("int x;\n", COURSE_TABLE, DEVICE_REGS, DEVICE_PINS)
+
+
+    @staticmethod
+    def program(body, before=""):
+        """A small program: the lines of `body` inside main after the start-up, with a line table for them."""
+        head = ["#include <xc.h>", "#define _XTAL_FREQ 4000000", *before.split("\n"), "void main(void)", "{",
+                "    ANSEL = 0;", "    TRISA = 0xFF;", "    TRISC = 0;"]
+        lines = head + ["    " + b for b in body] + ["}"]
+        main = head.index("void main(void)") + 1
+        table = [(0x700 + n, n) for n in range(main + 2, len(lines))]
+        return "\n".join(lines), table
+
+    def switches(self, body, before=""):
+        text, table = self.program(body, before)
+        target, _ = guess(text, table, DEVICE_REGS | {"LATC"}, DEVICE_PINS)
+        return target, [(s["pin"], s["active"]) for s in target["circuit"].get("switches", [])]
+
+    def test_conditions_decide_polarity(self):
+        _, sw = self.switches(["while (1) {", "    if (PORTAbits.RA0 == 0) PORTC = 0xFF;", "}"])
+        self.assertEqual(sw, [("RA0", "low")])                        # the action happens at 0
+        _, sw = self.switches(["while (PORTAbits.RA1 == 0) {", "}", "PORTC = 1;", "while (1) {", "}"])
+        self.assertEqual(sw, [("RA1", "high")])                       # waiting while 0: pressed ends it with 1
+        _, sw = self.switches(["while (1) {", "    if (SW == OFF) { PORTC = 1; } else { PORTC = 2; }", "}"],
+                              before="#define ON 1\n#define OFF 0\n#define SW PORTAbits.RA2")
+        self.assertEqual(sw, [("RA2", "high")])                       # OFF names the released state
+        target, sw = self.switches(["while (1) {", "    if (!RA3) RC0 = 1;", "}"])
+        self.assertEqual(sw, [("RA3", "low")])                        # the old single-bit names
+        self.assertEqual(target["circuit"]["port"], "C")
+
+    def test_watch_lat_and_read_led_port_inputs(self):
+        target, _ = self.switches(["while (1) {", "    LATC = 0x0F;", "}"])
+        self.assertIn({"until_write": "LATC", "count": 16, "wait_ms": 3000}, target["trace"])
+        self.assertIn("LATC", target["registers"])
+        target, sw = self.switches(["TRISB = 0x01;", "while (1) {", "    if (!PORTBbits.RB0) show(0xF0);", "}"],
+                                   before="void show(unsigned char v)\n{\n    PORTB = v;\n}")
+        self.assertEqual((target["circuit"]["port"], sw), ("B", [("RB0", "low")]))   # a write in a function before main
+
+    def test_strings_calls_and_anode_tables(self):
+        text, table = self.program(['lcd_puts("ready for input");', "PORTC = 1;", "while (1) {", "}"])
+        info = analyze(text)
+        self.assertEqual(info["loop"], text.split("\n").index("    while (1) {") + 1)   # not the "for" in the string
+        target, facts = guess(text, table, DEVICE_REGS, DEVICE_PINS)
+        self.assertEqual(facts["setup"], 3)                           # stops before the call (it could wait inside)
+        anode = "const unsigned char D[] = {0xC0, 0xF9, 0xA4, 0xB0, 0x99};"
+        target, _ = self.switches(["while (1) {", "    PORTC = D[1];", "}"], before=anode)
+        self.assertEqual(target["circuit"], {"type": "seg7", "port": "C", "common": "anode"})
+
+
+    MUX_SRC = """\
+#include <xc.h>
+#define _XTAL_FREQ 4000000
+const unsigned char _7seg[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x27, 0x7F, 0x6F};
+void __interrupt() intr(void)
+{
+    if (INTCONbits.INTF) { INTCONbits.INTF = 0; while (PORTBbits.RB0 == 1) { } }
+}
+void main(void)
+{
+    TRISA = 0;
+    TRISB = 0x01;
+    TRISC = 0;
+    INTCONbits.INTE = 1;
+    INTCONbits.GIE = 1;
+    while (1) {
+        PORTC = _7seg[1]; PORTAbits.RA0 = 0; __delay_ms(5); PORTAbits.RA0 = 1;
+        PORTC = _7seg[2]; PORTAbits.RA1 = 0; __delay_ms(5); PORTAbits.RA1 = 1;
+        PORTAbits.RA2 = 1;
+    }
+}
+"""
+
+    def test_multiplexed_display_and_int_pin(self):
+        table = [(0x700 + n, n) for n in (10, 11, 12, 13, 14, 16, 17)]
+        target, facts = guess(self.MUX_SRC, table, DEVICE_REGS, DEVICE_PINS)
+        mux, switch = target["circuit"]
+        self.assertEqual(mux["type"], "seg7mux")
+        self.assertEqual(mux["digits"], [{"pin": "RA0", "active": "low"}, {"pin": "RA1", "active": "low"},
+                                         {"pin": "RA2", "active": "low"}])   # RA2 stays dark but is a digit
+        self.assertEqual(switch["switches"], [{"pin": "RB0", "active": "high", "label": "RB0"}])   # the INT edge
+        watches = [a["until_write"] for a in target["trace"] if "until_write" in a]
+        self.assertEqual(watches[0], ["PORTC", "PORTA"])
+        self.assertTrue(all(a["count"] >= 40 for a in target["trace"] if "until_write" in a))
+
+    def test_old_c_builds_as_c90(self):
+        calls = []
+
+        def fake_compile(xc8, target, work):
+            calls.append(list(target.xc8_args))
+            if not target.xc8_args:
+                raise CompileError("type specifier missing, defaults to 'int'")
+            Path(work).mkdir(parents=True, exist_ok=True)
+            (Path(work) / "a.cmf").write_text("%LINETAB\n7C0 maintext CODE >3:C:\\w\\a.c\n", encoding="utf-8")
+            return Path(work) / "a.elf"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "a.c"
+            src.write_text("#include <xc.h>\nvoid main(void)\n{\n    PORTC = 1;\n}\n", encoding="utf-8")
+            tc = mock.Mock(pack_dirs=[], require_xc8=lambda: "xc8")
+            with mock.patch("picviewer.init.compile_target", fake_compile), \
+                    mock.patch("picviewer.init.find_device_file", lambda d, p: ("x.PIC", "pack", "1")), \
+                    mock.patch("picviewer.init.PicDef"), \
+                    mock.patch("picviewer.init.device_names", lambda pd: (DEVICE_REGS, DEVICE_PINS)):
+                init_source(src, Path(tmp) / "a", "PIC16F886", tc)
+            written = json.loads((Path(tmp) / "a" / "picviewer.json").read_text(encoding="utf-8"))
+        self.assertEqual(calls, [[], ["-std=c90"]])
+        self.assertEqual(written["targets"][0]["xc8_args"], ["-std=c90"])
 
 
 class IndexTest(TempDirTest):
@@ -707,8 +884,10 @@ class IndexTest(TempDirTest):
         self.make("PIC1/pic1-2/build/x")                          # build folders are not searched
         found = [p.parent.name for p in find_projects(self.tmp)]
         self.assertEqual(found, ["pic1-2", "pic1-10"])            # natural order
+        self.make("PIC1/①#a")                                    # a name int() and URLs need care with
+        self.assertEqual(natural("1①2"), ["", 1, "①", 2, ""])
         page = index_html(self.tmp, "授業")
-        self.assertIn("2 本（見られる 0 本、失敗 1 本）", page)
+        self.assertIn("3 本（見られる 0 本、失敗 1 本）", page)
         self.assertIn("mdb が 300 秒で終わらなかった", page)
         self.assertIn("<h2>PIC1</h2>", page)
         self.assertIn("pic1-10 の説明", page)
@@ -740,7 +919,7 @@ class WaveTest(unittest.TestCase):
 class RenderTest(TempDirTest):
     def test_examples_are_up_to_date(self):
         self.assertEqual(EXAMPLE_NAMES, ["buttons", "calculator", "lcd", "led", "motor", "seg7_counter",
-                                         "stopwatch", "switch_leds", "voltmeter"])
+                                         "seg7_mux", "stopwatch", "switch_leds", "voltmeter"])
         for name in EXAMPLE_NAMES:
             with self.subTest(example=name):
                 project = load(EXAMPLES / name)

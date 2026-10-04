@@ -3,21 +3,11 @@
 (() => {
   'use strict';
 
-  const NAMES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'];
-  // the usual a..g shapes of hexadecimal digits (bit 0 = a)
-  const DIGITS = { 0x3f: '0', 0x06: '1', 0x5b: '2', 0x4f: '3', 0x66: '4', 0x6d: '5', 0x7d: '6', 0x07: '7', 0x27: '7',
-    0x7f: '8', 0x6f: '9', 0x67: '9', 0x77: 'A', 0x7c: 'b', 0x39: 'C', 0x58: 'c', 0x5e: 'd', 0x79: 'E', 0x71: 'F', 0x00: '（消灯）' };
-
-  // segment outlines in a 120 x 220 box at (70, 40)
+  // segment outlines in a 120 x 220 box at (70, 40); names, shapes and outlines come from PicViewer.util.seg7
   const X = 70, Y = 40, W = 120, H = 220, T = 18;
-  const hseg = (y) => `M${X + 12} ${y} L${X + 22} ${y - T / 2} H${X + W - 22} L${X + W - 12} ${y} L${X + W - 22} ${y + T / 2} H${X + 22} Z`;
-  const vseg = (x, y0, y1) => `M${x} ${y0 + 12} L${x + T / 2} ${y0 + 22} V${y1 - 22} L${x} ${y1 - 12} L${x - T / 2} ${y1 - 22} V${y0 + 22} Z`;
-  const SHAPES = {
-    a: hseg(Y), g: hseg(Y + H / 2), d: hseg(Y + H),
-    f: vseg(X, Y, Y + H / 2), b: vseg(X + W, Y, Y + H / 2), e: vseg(X, Y + H / 2, Y + H), c: vseg(X + W, Y + H / 2, Y + H),
-  };
 
   function settings(cfg) {
+    const NAMES = window.PicViewer.util.seg7.NAMES;
     const order = Array.isArray(cfg.segments) && cfg.segments.length === 8 ? cfg.segments.map(String) : NAMES;
     return { port: String(cfg.port || 'C').toUpperCase(), order, anode: cfg.common === 'anode' };
   }
@@ -31,7 +21,7 @@
       const svg = U.svgEl('svg', { id: 'cir', viewBox: '0 0 560 320', role: 'img', 'aria-label': '7 セグメント LED' });
       const add = (tag, attrs, text) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; svg.append(e); return e; };
       add('rect', { class: 'body', x: 40, y: 14, width: 190, height: 290, rx: 14 });
-      Object.entries(SHAPES).forEach(([name, d]) => add('path', { class: 'seg', 'data-seg': name, d }));
+      Object.entries(U.seg7.paths(X, Y, W, H, T)).forEach(([name, d]) => add('path', { class: 'seg', 'data-seg': name, d }));
       add('circle', { class: 'seg', 'data-seg': 'dp', cx: X + W + 26, cy: Y + H + 4, r: 10 });
       Object.entries({ a: [X + W / 2, Y - 14], b: [X + W + 18, Y + 60], c: [X + W + 18, Y + 170], d: [X + W / 2, Y + H + 32],
         e: [X - 26, Y + 170], f: [X - 26, Y + 60], g: [X + W / 2, Y + H / 2 - 14] }).forEach(([n, [x, y]]) =>
@@ -75,11 +65,12 @@
         cell.setAttribute('class', on ? 'small em' : 'small');
         if (on) {
           lit.push(name);
-          const k = NAMES.indexOf(name);
+          const k = U.seg7.NAMES.indexOf(name);
           if (k >= 0 && k < 7) shape |= 1 << k;
         }
       }
-      const digit = DIGITS[shape];
+      // all dark is the blank shape; dp alone (shape 0 with something lit) is not a digit
+      const digit = lit.length === 0 ? U.seg7.SHAPES[0] : shape ? U.seg7.SHAPES[shape] : undefined;
       const status = [
         { label: `PORT${c.port}`, value: `${U.hex(latch)}`, tone: lit.length ? 'on' : '' },
         { label: '点いている区画', value: lit.join(' ') || 'なし', tone: lit.length ? 'on' : '' },

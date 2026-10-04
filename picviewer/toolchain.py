@@ -101,6 +101,20 @@ def find_pack_dirs(mplabx, extra=None):
     return out
 
 
+def ascii_path(path):
+    """The path in ASCII only. XC8 cannot open a file whose path has other characters (it receives them
+    mangled), so on Windows the short 8.3 name of an existing path is used; None when there is none."""
+    path = Path(path)
+    if str(path).isascii():
+        return path
+    if sys.platform == "win32":
+        import ctypes
+        buf = ctypes.create_unicode_buffer(32768)
+        if ctypes.windll.kernel32.GetShortPathNameW(str(path), buf, len(buf)) and buf.value.isascii():
+            return Path(buf.value)
+    return None
+
+
 def find_device_file(device, pack_dirs):
     """(path, pack name, pack version) of <device>.PIC. The newest pack version wins."""
     best = None

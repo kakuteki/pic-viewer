@@ -1,12 +1,15 @@
 """Load and check a project file (picviewer.json)."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd", "seg7", "keypad", "pot")
+CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd", "seg7", "seg7mux", "keypad", "pot")
 COUNTER_RE = re.compile(r"^(TMR\d+[LH]?|T\d+TMR[LH]?)$")
 PROJECT_KEYS = {"title", "output", "bundles", "build", "circuit", "wait_ms", "fast_forward", "targets"}
 TARGET_KEYS = {"id", "device", "source", "fosc_hz", "summary", "registers", "counters", "trace",
@@ -65,6 +68,18 @@ class Project:
         return self.bundle_dir / f"{tid}.json"
 
 
+def ascii_build_dir(path):
+    """XC8 cannot open files under a path with Japanese or other non-ASCII characters (it gets them mangled),
+    and this PC has no 8.3 short names to fall back on. Such a build folder moves to an ASCII place."""
+    if str(path).isascii():
+        return path
+    digest = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:12]
+    for base in (os.environ.get("LOCALAPPDATA"), os.environ.get("PUBLIC"), tempfile.gettempdir()):
+        if base and str(base).isascii():
+            return Path(base) / "picviewer" / "build" / digest
+    return path                        # nowhere better: compiling will say what is wrong
+
+
 def normalize_device(name):
     n = str(name).strip().upper()
     if not n.startswith("PIC"):
@@ -100,6 +115,7 @@ def parse_plan(raw, where):
     {"step": N}                         step N source lines, stopping at each
     {"set": {"RB0": 1, "AN0": "2.5V"}}  drive input pins before the next stop (optional "note")
     {"until_write": "PORTC", "count": N}  continue and stop after each write to the register, N times;
+                                        a list (["PORTC", "PORTA"]) stops on a write to any of them;
                                         with "until": L, stop collecting when line L is reached
     {"press": "5"}                      hold a key of the keypad in the circuit (optional "note")
     {"release": true}                   let go of the held key (optional "note")
@@ -138,7 +154,7 @@ def parse_plan(raw, where):
         elif "release" in a and set(a) <= {"release", "note"} and a["release"] is True:
             plan.append({"release": True, "note": str(a.get("note", ""))})
         elif "until_write" in a and set(a) <= {"until_write", "count", "until", "wait_ms"} \
-                and isinstance(a["until_write"], str) and re.fullmatch(r"\w+", a["until_write"]) \
+                and watch_list(a) and all(isinstance(r, str) and re.fullmatch(r"\w+", r) for r in watch_list(a)) \
                 and _pos_int(a.get("count")) and (a.get("until") is None or _pos_int(a["until"])) \
                 and (a.get("wait_ms") is None or _pos_int(a["wait_ms"])):
             if not started:
@@ -167,7 +183,13 @@ def plan_pins(plan):
 
 
 def plan_watches(plan):
-    return sorted({a["until_write"] for a in plan if "until_write" in a})
+    return sorted({r for a in plan if "until_write" in a for r in watch_list(a)})
+
+
+def watch_list(action):
+    """The registers an until_write watches, as a list (it may be written as one name)."""
+    w = action.get("until_write")
+    return [w] if isinstance(w, str) else list(dict.fromkeys(w)) if isinstance(w, list) else []
 
 
 def circuit_parts(circuit):
@@ -199,14 +221,21 @@ def keypad_keys(part):
 
 
 def _circuit(raw, defaults, where):
-    if isinstance(raw.get("circuit"), list):
-        parts = raw["circuit"]
-        if not parts or not all(isinstance(p, dict) for p in parts):
+    """The target's circuit: its own, else the project's; a dict of its own is laid over a project dict."""
+    own, common = raw.get("circuit"), defaults.get("circuit")
+    for value, name in ((own, "circuit"), (common, "全体の circuit")):
+        if value is not None and not isinstance(value, (dict, list)):
+            raise ProjectError(f"{where}: {name} は回路の設定（辞書）か、その並び: {value!r}")
+    listed = own if isinstance(own, list) else common if own is None and isinstance(common, list) else None
+    if listed is not None:
+        if not listed or not all(isinstance(p, dict) for p in listed):
             raise ProjectError(f"{where}: circuit を並べるときは、回路の設定（辞書）を 1 つ以上")
-        parts = [dict(p) for p in parts]
+        parts = [dict(p) for p in listed]
+    elif isinstance(common, list):
+        raise ProjectError(f"{where}: 全体の circuit が並びのときは、target の circuit も並びで書く")
     else:
-        merged = dict(defaults.get("circuit", {}))
-        merged.update(raw.get("circuit", {}))
+        merged = dict(common or {})
+        merged.update(own or {})
         parts = [merged]
     for p in parts:
         p.setdefault("type", "pins")
@@ -217,7 +246,7 @@ def _circuit(raw, defaults, where):
                 keypad_keys(p)
             except ProjectError as e:
                 raise ProjectError(f"{where}: {e}") from None
-    return parts if isinstance(raw.get("circuit"), list) else parts[0]
+    return parts if listed is not None else parts[0]
 
 
 def _target(raw, project_dir, defaults, index):
@@ -308,6 +337,6 @@ def load(path):
         path=path.resolve(), dir=base, title=title,
         output=base / raw.get("output", "viewer.html"),
         bundle_dir=base / raw.get("bundles", "bundles"),
-        build_dir=base / raw.get("build", "build"),
+        build_dir=ascii_build_dir(base / raw.get("build", "build")),
         targets=targets,
     )

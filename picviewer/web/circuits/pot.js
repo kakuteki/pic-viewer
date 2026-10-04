@@ -15,11 +15,15 @@
     return { pin, port: port ? port.toUpperCase() : null, vdd: t.vdd || 5, bits: cfg.bits || 10 };
   }
 
-  // the 10-bit result: ADFM (ADCON1 bit 7) set means right justified, as on the PIC16F88x
-  function result(R, cfg) {
+  // the result: ADFM set means right justified. Which register holds ADFM differs between families
+  // (ADCON1 on the PIC16F88x, ADCON2 on the PIC18, ADCON0 on the PIC16F684), so look it up by name.
+  function result(t, R, cfg, bits) {
     if (R.ADRESH === undefined || R.ADRESL === undefined) return null;
-    const right = R.ADCON1 !== undefined ? ((R.ADCON1 >> 7) & 1) === 1 : cfg.justify !== 'left';
-    return right ? ((R.ADRESH & 0x03) << 8) | R.ADRESL : (R.ADRESH << 2) | (R.ADRESL >> 6);
+    const holder = t.regs.find((r) => (r.bits || []).includes('ADFM'));
+    const right = holder && R[holder.name] !== undefined
+      ? ((R[holder.name] >> holder.bits.indexOf('ADFM')) & 1) === 1 : cfg.justify !== 'left';
+    const extra = bits - 8;
+    return right ? ((R.ADRESH & ((1 << extra) - 1)) << 8) | R.ADRESL : (R.ADRESH << extra) | (R.ADRESL >> (8 - extra));
   }
 
   window.PicViewer.circuits.pot = {
@@ -66,7 +70,7 @@
       const label = svg.querySelector('[data-volts]');
       label.setAttribute('y', String(y - 10));
       label.textContent = volts === null ? '電圧は入れていない' : `${volts.toFixed(2)} V`;
-      const n = result(R, cfg);
+      const n = result(t, R, cfg, c.bits);
       const full = 2 ** c.bits - 1;
       const measured = n === null ? null : (n * c.vdd) / full;
       const status = [
