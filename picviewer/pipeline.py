@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import bundle as bundle_io
 from .bundle import make_bundle, make_steps, read_source, register_info
-from .compiler import FAST_VAR, compile_target
+from .compiler import FAST_VAR, compile_target, compiled_name, skipped_per_ms
 from .linetab import line_at, read_line_table, writer_address
 from .mdb import MdbError, parse_records, probe_commands, probe_errors, run as mdb_run, trace_commands
 from .picdef import PicDef
@@ -40,7 +40,7 @@ def check_names(target, picdef):
         raise MdbError("\n".join(errors))
 
 
-def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=True, log=_say):
+def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=True, probe=True, log=_say):
     work = project.build_dir / target.id
     work.mkdir(parents=True, exist_ok=True)
     elf = work / (target.source.stem + ".elf")
@@ -52,7 +52,7 @@ def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=T
     picdef = PicDef(device_file)
     registers = register_info(picdef, target.registers)
     check_names(target, picdef)
-    src = target.source.name             # mdb finds breakpoints by the file name the ELF was built from
+    src = compiled_name(target)          # mdb finds breakpoints by the file name the ELF was built from
     variables = [FAST_VAR] if target.fast_forward else []
 
     def need_simulator():
@@ -66,14 +66,15 @@ def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=T
         text = trace_log.read_text(encoding="utf-8")
     else:
         mdb = need_simulator()
-        lines = sorted(set(plan_lines(target.trace)) | {w.at for w in target.waves})
-        names = list(dict.fromkeys(target.registers + plan_watches(target.trace) + variables))
-        log(f"[{target.id}] シミュレータで下調べ（止める行 {lines} とレジスタ名）")
-        probe_text = mdb_run(mdb, probe_commands(target.device, elf, src, lines, names),
-                             work / "probe.log", timeout=300)
-        errors = probe_errors(probe_text, target.source_name, target.device)
-        if errors:
-            raise MdbError("\n".join(errors))
+        if probe:
+            lines = sorted(set(plan_lines(target.trace)) | {w.at for w in target.waves})
+            names = list(dict.fromkeys(target.registers + plan_watches(target.trace) + variables))
+            log(f"[{target.id}] シミュレータで下調べ（止める行 {lines} とレジスタ名）")
+            probe_text = mdb_run(mdb, probe_commands(target.device, elf, src, lines, names),
+                                 work / "probe.log", timeout=300)
+            errors = probe_errors(probe_text, target.source_name, target.device)
+            if errors:
+                raise MdbError("\n".join(errors))
         cmds, kinds = trace_commands(target.device, elf, src, target.trace, target.registers,
                                      target.wait_ms, variables)
         waits = sum(1 for k in kinds if k in ("start", "run", "write"))
@@ -83,7 +84,8 @@ def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=T
     table = read_line_table(elf.with_suffix(".cmf"), src)
     steps = make_steps(target.trace, parse_records(text, target.registers + variables), registers,
                        writer_line=lambda a: line_at(table, writer_address(target.device, a)) if table else None,
-                       skipped_var=FAST_VAR if target.fast_forward else None)
+                       delay_var=FAST_VAR if target.fast_forward else None,
+                       us_per_ms=skipped_per_ms(target.fast_forward) if target.fast_forward else 0)
 
     wave_results = []
     if waves:

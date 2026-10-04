@@ -6,9 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .toolchain import NO_WINDOW
+from .toolchain import BELOW_NORMAL, NO_WINDOW
 
-FAST_VAR = "picviewer_skipped_us"      # microseconds of __delay_ms cut away so far, read at every stop
+# milliseconds asked of __delay_ms so far, read at every stop. Counting milliseconds rather than the
+# microseconds cut away keeps 32 bits good for 49 days of program time (microseconds overflow in 71 minutes).
+FAST_VAR = "picviewer_delay_ms"
 
 
 class CompileError(Exception):
@@ -27,11 +29,19 @@ def fast_source(text):
 
 
 def fast_define(factor):
-    """-D option: wait 1/factor of the time and add the rest to the counter (a block-scope extern needs no header)."""
-    real = 1000 // factor
-    skipped = 1000 - real
+    """-D option: wait 1/factor of the time and count the milliseconds asked (a block-scope extern needs no header)."""
     return (f"-DPICVIEWER_DELAY_MS(x)=do {{ extern volatile unsigned long {FAST_VAR}; "
-            f"{FAST_VAR} += (unsigned long)(x) * {skipped}UL; __delay_us((x) * {real}UL); }} while (0)")
+            f"{FAST_VAR} += (unsigned long)(x); __delay_us((x) * {1000 // factor}UL); }} while (0)")
+
+
+def skipped_per_ms(factor):
+    """Microseconds cut away from each millisecond asked of __delay_ms."""
+    return 1000 - 1000 // factor
+
+
+def compiled_name(target):
+    """File name XC8 and mdb see. XC8 takes only .c sources ('.xc8' gives error 894), so others become <stem>.c."""
+    return target.source.name if target.source.suffix.lower() == ".c" else target.source.stem + ".c"
 
 
 def compile_target(xc8, target, work):
@@ -40,17 +50,21 @@ def compile_target(xc8, target, work):
     if not target.source.is_file():
         raise CompileError(f"ソースが無い: {target.source}")
     source, extra = target.source, []
-    if target.fast_forward:
+    name = compiled_name(target)
+    if target.fast_forward or name != target.source.name:
+        # a copy under build/: the original is never touched, and #include "..." still finds its neighbours
         sim = work / "sim"
         sim.mkdir(exist_ok=True)
         text = target.source.read_text(encoding="utf-8", errors="surrogateescape")
-        new, _ = fast_source(text)
-        source = sim / target.source.name
-        source.write_text(new, encoding="utf-8", errors="surrogateescape", newline="\n")
-        extra = [fast_define(target.fast_forward), f"-I{target.source.parent}"]
+        if target.fast_forward:
+            text, _ = fast_source(text)
+            extra.append(fast_define(target.fast_forward))
+        source = sim / name
+        source.write_text(text, encoding="utf-8", errors="surrogateescape", newline="\n")
+        extra.append(f"-I{target.source.parent}")
     elf = work / (target.source.stem + ".elf")
     cmd = [str(xc8), f"-mcpu={target.device[3:]}", "-O0", "-o", elf.name, str(source), *extra, *target.xc8_args]
-    kw = {"creationflags": NO_WINDOW} if sys.platform == "win32" else {}
+    kw = {"creationflags": NO_WINDOW | BELOW_NORMAL} if sys.platform == "win32" else {}
     r = subprocess.run(cmd, cwd=work, capture_output=True, text=True, errors="replace", **kw)
     log = (r.stdout or "") + (r.stderr or "")
     (work / "compile.log").write_text(log, encoding="utf-8")

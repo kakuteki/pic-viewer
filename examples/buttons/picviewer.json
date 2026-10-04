@@ -1,0 +1,57 @@
+{
+  "title": "4 個のスイッチと LED（buttons.c、計画は picviewer init が作ったまま）",
+  "output": "buttons_viewer.html",
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/buttons.c",
+      "fosc_hz": 4000000,
+      "summary": "PORTC に LED、スイッチ SW0（RA0、押すと 0）、SW1（RA1、押すと 0）、SW2（RA2、押すと 0）、SW3（RA3、押すと 0）（init がソースから読み取った割り当て）",
+      "wait_ms": 20000,
+      "registers": ["OSCCON", "ANSEL", "ANSELH", "TRISA", "TRISC", "PORTA", "PORTC"],
+      "trace": [
+        { "set": { "RA0": 1, "RA1": 1, "RA2": 1, "RA3": 1 }, "note": "スイッチは全部離してある" },
+        { "run_to": 21 },
+        { "step": 6 },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 },
+        { "set": { "RA0": 0 }, "note": "SW0 を押す" },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 },
+        { "set": { "RA0": 1 }, "note": "SW0 を離す" },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 },
+        { "set": { "RA1": 0 }, "note": "SW1 を押す" },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 },
+        { "set": { "RA1": 1 }, "note": "SW1 を離す" },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 },
+        { "set": { "RA2": 0 }, "note": "SW2 を押す" },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 },
+        { "set": { "RA2": 1 }, "note": "SW2 を離す" },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 },
+        { "set": { "RA3": 0 }, "note": "SW3 を押す" },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 },
+        { "set": { "RA3": 1 }, "note": "SW3 を離す" },
+        { "until_write": "PORTC", "count": 2, "wait_ms": 3000 }
+      ],
+      "circuit": {
+        "type": "leds",
+        "port": "C",
+        "switches": [
+          { "pin": "RA0", "active": "low", "label": "SW0" },
+          { "pin": "RA1", "active": "low", "label": "SW1" },
+          { "pin": "RA2", "active": "low", "label": "SW2" },
+          { "pin": "RA3", "active": "low", "label": "SW3" }
+        ]
+      },
+      "notes": {
+        "21": "内部発振器を 4 MHz に",
+        "22": "RA0-RA3 をデジタル入力に",
+        "24": "RA0-RA3 はスイッチの入力",
+        "25": "PORTC は全部 LED の出力",
+        "26": "LED を全部消す",
+        "29": "押しているスイッチのビットだけ 1 になる",
+        "31": "SW3 を押している間は RC7 も点ける",
+        "33": "押しているスイッチの LED を点ける"
+      }
+    }
+  ]
+}

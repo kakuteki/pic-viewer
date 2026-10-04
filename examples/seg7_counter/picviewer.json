@@ -1,0 +1,41 @@
+{
+  "title": "スイッチで進む 7 セグメント LED（counter.c、計画は picviewer init が作ったまま）",
+  "output": "seg7_counter_viewer.html",
+  "fast_forward": 1000,
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/counter.c",
+      "fosc_hz": 4000000,
+      "summary": "PORTC に 7 セグメント LED、スイッチ SW（RB0、押すと 0）（init がソースから読み取った割り当て）",
+      "wait_ms": 20000,
+      "registers": ["OSCCON", "ANSEL", "ANSELH", "TRISB", "TRISC", "PORTB", "PORTC"],
+      "trace": [
+        { "set": { "RB0": 1 }, "note": "スイッチは全部離してある" },
+        { "run_to": 20 },
+        { "step": 7 },
+        { "until_write": "PORTC", "count": 5, "wait_ms": 3000 },
+        { "set": { "RB0": 0 }, "note": "SW を押す" },
+        { "until_write": "PORTC", "count": 5, "wait_ms": 3000 },
+        { "set": { "RB0": 1 }, "note": "SW を離す" },
+        { "until_write": "PORTC", "count": 5, "wait_ms": 3000 }
+      ],
+      "circuit": {
+        "type": "seg7",
+        "port": "C",
+        "switches": [{ "pin": "RB0", "active": "low", "label": "SW" }]
+      },
+      "notes": {
+        "22": "内部発振器を 4 MHz に",
+        "23": "アナログ入力を使わない",
+        "24": "RB0 をデジタル入力に",
+        "25": "RB0 はスイッチの入力",
+        "26": "PORTC は全部 7 セグメント LED の出力",
+        "27": "0 を出す",
+        "30": "押されるまで待つ",
+        "34": "次の数字を出す"
+      }
+    }
+  ]
+}

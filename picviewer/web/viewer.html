@@ -11,7 +11,7 @@
   --fg: #1b1e26; --dim: #596072; --wire: #7b8294;
   --accent: #e07a10; --accent-ink: #a65200; --accent-soft: #fdebd3;
   --recirc: #2f86c4; --recirc-ink: #1d5f8f; --recirc-soft: #d9ebf7;
-  --led: #f5b800; --led-off: #c9cdd6;
+  --led: #f5b800; --led-off: #c9cdd6; --seg-on: #e8402a;
   --bit1: #3d62b6; --bit1-ink: #ffffff; --bit0: #e4e7ee; --bit0-ink: #4d5464;
   --hl: #ffefc2; --focus: #1f6feb;
   --mono: Consolas, "BIZ UDGothic", "MS Gothic", monospace;
@@ -22,7 +22,7 @@
     --fg: #e4e7ee; --dim: #9ba2b3; --wire: #6f778a;
     --accent: #ff9a2e; --accent-ink: #ffb061; --accent-soft: #43311b;
     --recirc: #4ea3e0; --recirc-ink: #8cc8f2; --recirc-soft: #1c3449;
-    --led: #ffd246; --led-off: #4a4f5c;
+    --led: #ffd246; --led-off: #4a4f5c; --seg-on: #ff6650;
     --bit1: #5b83dd; --bit1-ink: #0e1116; --bit0: #2a2f3a; --bit0-ink: #aab1c2;
     --hl: #40371f; --focus: #6ea8ff;
   }
@@ -106,6 +106,8 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 .code li.run:hover { background: var(--inset); }
 .code li.cur, .code li.cur:hover { background: var(--hl); }
 .code li.cur .ln { color: var(--accent-ink); }
+.code li.at, .code li.at:hover { background: var(--recirc-soft); }
+.code li.at .ln { color: var(--recirc-ink); }
 .hint { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
 
 .regs { border-collapse: separate; border-spacing: 0 3px; font-size: 13px; }
@@ -160,6 +162,10 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 #cir[data-lit="1"] .led-body, #cir .ledg.lit .led-body { fill: var(--led); }
 #cir[data-lit="1"] .halo, #cir .ledg.lit .halo { opacity: .3; }
 
+/* 7-segment LED */
+#cir .seg { fill: var(--led-off); stroke: var(--wire); stroke-width: 1; }
+#cir .seg.on { fill: var(--seg-on); stroke: var(--seg-on); }
+
 /* character LCD */
 .lcd { display: inline-block; background: #7fa650; border-radius: 10px; padding: 14px 16px; box-shadow: inset 0 0 0 3px rgba(0, 0, 0, .25); max-width: 100%; overflow-x: auto; }
 .lcd.off { background: #5e6b55; }
@@ -211,6 +217,26 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 .wave polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .wave .cap { margin: 4px 0 0; font-size: 12px; }
 .assume { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
+
+/* timing diagram */
+.tmpanel { margin-top: 14px; }
+.tmhead { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: flex-end; justify-content: space-between; margin-bottom: 6px; }
+.tmhead h2 { margin: 0; }
+.tmbox { overflow-x: auto; }
+#tm { display: block; cursor: pointer; }
+#tm text { font-family: inherit; }
+#tm .tmlabel { font-family: var(--mono); font-size: 12px; fill: var(--dim); }
+#tm .tmlabel.chg { fill: var(--accent-ink); font-weight: 700; }
+#tm .tmwave { fill: none; stroke: var(--fg); stroke-width: 1.5; }
+#tm .tmhi { fill: var(--bit1); opacity: .22; }
+#tm .tmband path { fill: var(--inset); stroke: var(--fg); stroke-width: 1.2; }
+#tm .tmband text { font-family: var(--mono); font-size: 11px; fill: var(--fg); }
+#tm .tmcur { stroke: var(--accent); stroke-width: 2; }
+#tm .tmwait { stroke: var(--wire); stroke-width: 1; stroke-dasharray: 3 3; }
+#tm .tmin path { fill: var(--recirc); }
+#tm .tmbreak { fill: none; stroke: var(--dim); stroke-width: 1.5; }
+#tm .tmhit { fill: transparent; }
+#tm .tmtick { font-size: 11px; fill: var(--dim); }
 .foot { margin-top: 16px; color: var(--dim); font-size: 12px; }
 .foot ul { margin: 0; padding-left: 18px; }
 .foot li { margin: 2px 0; }
@@ -287,6 +313,21 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
       <p class="hint" id="regHint"></p>
     </section>
   </main>
+
+  <section class="panel tmpanel" id="pTiming" aria-label="時間の図">
+    <div class="tmhead">
+      <h2>時間の図<small>値の変わったレジスタの移り変わり</small></h2>
+      <fieldset class="seg">
+        <legend>横軸</legend>
+        <div class="opts">
+          <label><input type="radio" name="tmAxis" value="step" checked><span>ステップごと</span></label>
+          <label><input type="radio" name="tmAxis" value="time"><span>時間に比例</span></label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="tmbox" id="tmBox"></div>
+    <p class="hint" id="tmHint"></p>
+  </section>
 
   <footer class="foot"><ul id="foot"></ul></footer>
 </div>

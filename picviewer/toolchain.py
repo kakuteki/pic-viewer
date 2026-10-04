@@ -13,6 +13,7 @@ ENV_MPLABX = "PICVIEWER_MPLABX"
 ENV_XC8 = "PICVIEWER_XC8"
 ENV_PACKS = "PICVIEWER_PACKS"
 NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW: keep child consoles from flashing on Windows
+BELOW_NORMAL = 0x00004000  # BELOW_NORMAL_PRIORITY_CLASS: a long batch must not make the machine sluggish
 
 
 class ToolNotFound(Exception):

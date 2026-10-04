@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .toolchain import NO_WINDOW
+from .toolchain import BELOW_NORMAL, NO_WINDOW
 
 
 class MdbError(Exception):
@@ -35,7 +35,12 @@ def run(mdb, commands, log_path, timeout):
         args, shell = f'"{mdb}" "{script}"', True
     else:
         args, shell = [str(mdb), str(script)], False
-    kw = {"creationflags": NO_WINDOW} if sys.platform == "win32" else {"start_new_session": True}
+    # below normal priority, inherited by the java process: a long batch must not make the machine sluggish
+    if sys.platform == "win32":
+        kw = {"creationflags": NO_WINDOW | BELOW_NORMAL}
+    else:
+        import os
+        kw = {"start_new_session": True, "preexec_fn": lambda: os.nice(10)}
     proc = subprocess.Popen(args, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
     try:
         out, err = proc.communicate(timeout=timeout)
@@ -83,6 +88,8 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
 
     Breakpoints and watchpoints share one numbering (0, 1, 2, ...) and a number is never reused,
     so the ones in force can be deleted by number before the next run_to or until_write.
+    A Wait that runs out prints nothing and leaves the target running, so every Wait is followed by
+    Halt: on a halted target it does nothing, on a running one it stops where the program is.
     """
     prints = [f"Print {r}" for r in registers] + [f"Print {v}" for v in variables] + ["Stopwatch"]
     cmds = header(device, elf)
@@ -109,7 +116,7 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
         elif "run_to" in action:
             clear()
             add(f"Break {source_name}:{action['run_to']}")
-            cmds += ["Continue" if started else "Run", f"Wait {wait_ms}", *prints]
+            cmds += ["Continue" if started else "Run", f"Wait {wait_ms}", "Halt", *prints]
             kinds.append("run" if started else "start")
             started = True
         elif "until_write" in action:
@@ -119,20 +126,31 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
                 add(f"Break {source_name}:{action['until']}")
             wait = action.get("wait_ms", wait_ms)
             for _ in range(action["count"]):
-                cmds += ["Continue", f"Wait {wait}", *prints]
+                cmds += ["Continue", f"Wait {wait}", "Halt", *prints]
                 kinds.append("write")
     cmds.append("Quit")
     return cmds, kinds
 
 
 def parse_records(text, registers):
-    """One record per stop: source line, address, raw stopwatch reading and the register values."""
+    """One record per stop: source line, address, raw stopwatch reading and the register values.
+
+    'timeout' marks a stop made by our Halt after a Wait ran out: mdb prints "Simulator halted" right
+    after the Halt, and no "Single breakpoint" (which a breakpoint or watchpoint hit always prints).
+    """
     records = []
     values, line, addr, want = {}, None, None, None
+    hit = halted = False
+    prev = ""
     for raw in text.splitlines():
         s = raw.strip()
         if not s:
             continue
+        if s.startswith("Single breakpoint"):
+            hit = True
+        elif s == "Simulator halted" and prev == "Halt":
+            halted = True
+        prev = s
         m = re.match(r"source line:\s*(\d+)", s)
         if m:
             line = int(m.group(1))
@@ -144,14 +162,15 @@ def parse_records(text, registers):
         m = re.match(r"Stopwatch cycle count = (\d+)", s)
         if m:
             missing = [r for r in registers if r not in values]
-            if line is None:
-                raise MdbError(f"{len(records) + 1} 回目の停止で行番号が読めない（待ち時間内に止まらなかったか、"
-                               "行番号の無いところで止まった）")
+            timeout = halted and not hit
+            if line is None and not timeout:
+                raise MdbError(f"{len(records) + 1} 回目の停止で行番号が読めない（行番号の無いところで止まった）")
             if missing:
                 raise MdbError(f"{len(records) + 1} 回目の停止で値が読めないレジスタ: {missing}")
             records.append({"line": line, "addr": addr, "reading": int(m.group(1)),
-                            "values": {r: values[r] for r in registers}})
+                            "values": {r: values[r] for r in registers}, "timeout": timeout})
             values, line, addr, want = {}, None, None, None
+            hit = halted = False
             continue
         m = re.fullmatch(r"(\w+)=(.*)", s)
         if m:

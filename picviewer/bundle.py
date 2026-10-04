@@ -53,17 +53,27 @@ def expand_plan(plan):
     return out
 
 
-def make_steps(plan, records, registers, writer_line=None, skipped_var=None):
-    """Steps for the page. writer_line(address) gives the source line of the instruction that made a write stop."""
+def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_per_ms=0):
+    """Steps for the page. writer_line(address) gives the source line of the instruction that made a write stop.
+    delay_var is the fast-forward count of milliseconds asked of __delay_ms; us_per_ms of each were cut away.
+
+    A write stop made by Halt after the wait ran out becomes a 'timeout' step (nothing was written);
+    a second one in a row within the same until_write is dropped, as it only repeats the first.
+    """
     expected = expand_plan(plan)
     if len(records) != len(expected):
         raise MdbError(f"止まった回数 {len(records)} が計画の {len(expected)} 回と合わない")
     cycles = absolute_cycles(records, [e["kind"] for e in expected])
-    steps, ended, carry = [], set(), {}
+    steps, ended, carry, last_kind = [], set(), {}, {}
     for i, (e, rec, cyc) in enumerate(zip(expected, records, cycles)):
-        if e["kind"] == "write" and e["segment"] in ended:
+        timeout = rec.get("timeout", False)
+        if e["kind"] == "write" and (e["segment"] in ended or (timeout and last_kind.get(e["segment"]) == "timeout")):
             carry.update({k: e[k] for k in ("inputs", "input_note") if k in e})   # dropped stop: keep its inputs
             continue
+        if timeout and e["kind"] != "write":
+            where = f"{rec['line']} 行目のあたり" if rec["line"] else "行番号の無い所"
+            raise MdbError(f"{i + 1} 回目は {e['want']} 行目で止まるはずが、着かないまま待ち時間が過ぎた"
+                           f"（止めた所は {where}）。入力（set）か wait_ms を見直す")
         if e["want"] is not None and rec["line"] != e["want"]:
             raise MdbError(f"{i + 1} 回目は {e['want']} 行目で止まるはずが {rec['line']} 行目で止まった")
         kind = e["kind"]
@@ -73,12 +83,16 @@ def make_steps(plan, records, registers, writer_line=None, skipped_var=None):
             executed = steps[-1]["next"]
         elif kind == "run":
             executed = e["show"]
+        elif timeout:
+            kind, executed = "timeout", None       # nothing was written while we waited
         elif e.get("until") and rec["line"] == e["until"]:
             kind, executed = "end", e["until"]     # reached the closing line: no more writes are collected
             ended.add(e["segment"])
         else:
             line = writer_line(int(rec["addr"], 16)) if writer_line and rec["addr"] else None
             executed = line or rec["line"]
+        if e["kind"] == "write":
+            last_kind[e["segment"]] = kind
         step = {"kind": kind, "exec": executed, "next": rec["line"], "addr": rec["addr"], "cycles": cyc,
                 "v": [rec["values"][r["name"]] & r["mask"] for r in registers]}
         if e["kind"] == "write":
@@ -89,8 +103,8 @@ def make_steps(plan, records, registers, writer_line=None, skipped_var=None):
             step["inputs"] = inputs["inputs"]
             if inputs.get("input_note"):
                 step["input_note"] = inputs["input_note"]
-        if skipped_var and skipped_var in rec["values"]:
-            step["skipped_us"] = rec["values"][skipped_var] & 0xFFFFFFFF
+        if delay_var and delay_var in rec["values"]:
+            step["skipped_us"] = (rec["values"][delay_var] & 0xFFFFFFFF) * us_per_ms
         steps.append(step)
     return steps
 

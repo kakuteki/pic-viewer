@@ -49,6 +49,39 @@ def open_page(rel):
     ab("wait", "200")
 
 
+def goto(n):
+    ab("eval", "(() => { const s = document.getElementById('slider'); s.value = '%d';"
+               " s.dispatchEvent(new Event('input', {bubbles: true})); })()" % n)
+
+
+def steps_of(example, target="pic16f886"):
+    path = ROOT / "examples" / example / "bundles" / f"{target}.json"
+    return json.loads(path.read_text(encoding="utf-8"))["steps"]
+
+
+def text_of(element_id):
+    return json.loads(ab("eval", f"document.getElementById('{element_id}').textContent"))
+
+
+def expect(label, ok, detail=""):
+    global failures
+    if ok:
+        print(f"ok    {label}")
+    else:
+        failures += 1
+        print(f"FAIL  {label}: {detail}")
+
+
+def click_timing_at_step(k):
+    """Click the timing diagram where step k is drawn (its x is read from the cursor while standing on k)."""
+    goto(k)
+    x = state()["timing"]["cursor"]
+    goto(0)
+    ab("eval", "(() => { const svg = document.getElementById('tm'); const r = svg.getBoundingClientRect();"
+               " const s = r.width / Number(svg.getAttribute('width'));"
+               " svg.dispatchEvent(new MouseEvent('click', {clientX: r.left + %f * s, clientY: r.top + 40, bubbles: true})); })()" % x)
+
+
 def led():
     open_page("examples/led/led_viewer.html")
     check("led: reset", target="pic16f886", step=0, exec=None, drive="hiz", lit=False)
@@ -133,6 +166,50 @@ def lcd():
     check("lcd: HELLO and PIC on the screen", step=109, kind="end", exec=73, display=True, lines=["HELLO", "PIC"])
 
 
+def buttons():
+    steps = steps_of("buttons")
+    note = {s["input_note"]: i for i, s in enumerate(steps) if s.get("input_note")}
+    open_page("examples/buttons/buttons_viewer.html")
+    check("buttons: start, every switch released", step=0, lit=0, pressed=False)
+    expect("buttons: before ANSEL = 0 the released pins read 0, and the page says why",
+           "アナログ入力のまま" in text_of("cirText"), text_of("cirText"))
+    goto(3)
+    expect("buttons: after ANSEL = 0 the pins read what is on them", "アナログ入力のまま" not in text_of("cirText"), text_of("cirText"))
+    goto(note["SW0 を押す"])
+    check("buttons: SW0 held lights RC0", kind="write", pattern="00000001", pressedNames=["SW0"])
+    goto(note["SW3 を押す"] + 1)
+    check("buttons: SW3 held also lights RC7", kind="write", pattern="10001000", pressedNames=["SW3"])
+    timing = state()["timing"]
+    expect("buttons: timing rows are the switch and LED pins",
+           timing and all(n in timing["rows"] for n in ("RA0", "RA3", "RC0", "RC3", "RC7")), timing)
+    k = note["SW2 を押す"]
+    click_timing_at_step(k)
+    check("buttons: a click on the timing diagram moves to that step", step=k, pressedNames=["SW2"])
+    expect("buttons: the bits that changed are marked", "RA2" in state()["timing"]["changed"], state()["timing"])
+
+
+def seg7_counter():
+    steps = steps_of("seg7_counter")
+    kinds = [s["kind"] for s in steps]
+    first_wait = kinds.index("timeout")
+    pressed = next(i for i, s in enumerate(steps) if s.get("input_note") == "SW を押す")
+    open_page("examples/seg7_counter/seg7_counter_viewer.html")
+    check("seg7: reset, dark", step=0, lit="")
+    goto(first_wait - 1)
+    check("seg7: setup shows 0", digit="0", lit="abcdef")
+    goto(first_wait)
+    check("seg7: waits for the switch without writing", kind="timeout", exec=None, digit="0", pressed=[])
+    expect("seg7: the wait is explained", "書かないまま待った" in text_of("exNote"), text_of("exNote"))
+    goto(pressed)
+    check("seg7: held, counts to 1", kind="write", digit="1", pressed=["SW"])
+    goto(pressed + 2)
+    check("seg7: held, counts to 3", kind="write", digit="3", lit="abcdg")
+    ab("click", "input[name=tmAxis][value=time]")
+    expect("seg7: the timing diagram switches to the time axis", state()["timing"]["mode"] == "time", state()["timing"])
+    ab("click", "#bLast")
+    check("seg7: released again, waits", kind="timeout", pressed=[])
+
+
 def main():
     global failures
     if EXE is None:
@@ -143,6 +220,8 @@ def main():
     motor()
     switch_leds()
     lcd()
+    buttons()
+    seg7_counter()
     errors = ab("errors")
     if errors:
         failures += 1

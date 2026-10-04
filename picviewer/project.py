@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd")
+CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd", "seg7")
 COUNTER_RE = re.compile(r"^(TMR\d+[LH]?|T\d+TMR[LH]?)$")
 PROJECT_KEYS = {"title", "output", "bundles", "build", "circuit", "wait_ms", "fast_forward", "targets"}
 TARGET_KEYS = {"id", "device", "source", "fosc_hz", "summary", "registers", "counters", "trace",
@@ -212,7 +212,7 @@ def _target(raw, project_dir, defaults, index):
         raise ProjectError(f"{where}: fast_forward は {FAST_FACTORS} のどれか（__delay_ms を何分の 1 にするか）")
     return Target(
         id=tid, device=normalize_device(raw["device"]), source=source,
-        source_name=Path(raw["source"]).as_posix(), registers=list(regs),
+        source_name=Path(raw["source"]).name, registers=list(regs),
         trace=parse_plan(raw["trace"], where), fosc_hz=fosc, summary=raw.get("summary", ""),
         notes=dict(notes), circuit=circuit, counters=list(counters), waves=waves,
         xc8_args=list(raw.get("xc8_args", [])), wait_ms=wait_ms, fast_forward=fast,

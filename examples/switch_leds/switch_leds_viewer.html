@@ -11,7 +11,7 @@
   --fg: #1b1e26; --dim: #596072; --wire: #7b8294;
   --accent: #e07a10; --accent-ink: #a65200; --accent-soft: #fdebd3;
   --recirc: #2f86c4; --recirc-ink: #1d5f8f; --recirc-soft: #d9ebf7;
-  --led: #f5b800; --led-off: #c9cdd6;
+  --led: #f5b800; --led-off: #c9cdd6; --seg-on: #e8402a;
   --bit1: #3d62b6; --bit1-ink: #ffffff; --bit0: #e4e7ee; --bit0-ink: #4d5464;
   --hl: #ffefc2; --focus: #1f6feb;
   --mono: Consolas, "BIZ UDGothic", "MS Gothic", monospace;
@@ -22,7 +22,7 @@
     --fg: #e4e7ee; --dim: #9ba2b3; --wire: #6f778a;
     --accent: #ff9a2e; --accent-ink: #ffb061; --accent-soft: #43311b;
     --recirc: #4ea3e0; --recirc-ink: #8cc8f2; --recirc-soft: #1c3449;
-    --led: #ffd246; --led-off: #4a4f5c;
+    --led: #ffd246; --led-off: #4a4f5c; --seg-on: #ff6650;
     --bit1: #5b83dd; --bit1-ink: #0e1116; --bit0: #2a2f3a; --bit0-ink: #aab1c2;
     --hl: #40371f; --focus: #6ea8ff;
   }
@@ -106,6 +106,8 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 .code li.run:hover { background: var(--inset); }
 .code li.cur, .code li.cur:hover { background: var(--hl); }
 .code li.cur .ln { color: var(--accent-ink); }
+.code li.at, .code li.at:hover { background: var(--recirc-soft); }
+.code li.at .ln { color: var(--recirc-ink); }
 .hint { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
 
 .regs { border-collapse: separate; border-spacing: 0 3px; font-size: 13px; }
@@ -160,6 +162,10 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 #cir[data-lit="1"] .led-body, #cir .ledg.lit .led-body { fill: var(--led); }
 #cir[data-lit="1"] .halo, #cir .ledg.lit .halo { opacity: .3; }
 
+/* 7-segment LED */
+#cir .seg { fill: var(--led-off); stroke: var(--wire); stroke-width: 1; }
+#cir .seg.on { fill: var(--seg-on); stroke: var(--seg-on); }
+
 /* character LCD */
 .lcd { display: inline-block; background: #7fa650; border-radius: 10px; padding: 14px 16px; box-shadow: inset 0 0 0 3px rgba(0, 0, 0, .25); max-width: 100%; overflow-x: auto; }
 .lcd.off { background: #5e6b55; }
@@ -211,6 +217,26 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 .wave polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .wave .cap { margin: 4px 0 0; font-size: 12px; }
 .assume { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
+
+/* timing diagram */
+.tmpanel { margin-top: 14px; }
+.tmhead { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: flex-end; justify-content: space-between; margin-bottom: 6px; }
+.tmhead h2 { margin: 0; }
+.tmbox { overflow-x: auto; }
+#tm { display: block; cursor: pointer; }
+#tm text { font-family: inherit; }
+#tm .tmlabel { font-family: var(--mono); font-size: 12px; fill: var(--dim); }
+#tm .tmlabel.chg { fill: var(--accent-ink); font-weight: 700; }
+#tm .tmwave { fill: none; stroke: var(--fg); stroke-width: 1.5; }
+#tm .tmhi { fill: var(--bit1); opacity: .22; }
+#tm .tmband path { fill: var(--inset); stroke: var(--fg); stroke-width: 1.2; }
+#tm .tmband text { font-family: var(--mono); font-size: 11px; fill: var(--fg); }
+#tm .tmcur { stroke: var(--accent); stroke-width: 2; }
+#tm .tmwait { stroke: var(--wire); stroke-width: 1; stroke-dasharray: 3 3; }
+#tm .tmin path { fill: var(--recirc); }
+#tm .tmbreak { fill: none; stroke: var(--dim); stroke-width: 1.5; }
+#tm .tmhit { fill: transparent; }
+#tm .tmtick { font-size: 11px; fill: var(--dim); }
 .foot { margin-top: 16px; color: var(--dim); font-size: 12px; }
 .foot ul { margin: 0; padding-left: 18px; }
 .foot li { margin: 2px 0; }
@@ -288,21 +314,40 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
     </section>
   </main>
 
+  <section class="panel tmpanel" id="pTiming" aria-label="時間の図">
+    <div class="tmhead">
+      <h2>時間の図<small>値の変わったレジスタの移り変わり</small></h2>
+      <fieldset class="seg">
+        <legend>横軸</legend>
+        <div class="opts">
+          <label><input type="radio" name="tmAxis" value="step" checked><span>ステップごと</span></label>
+          <label><input type="radio" name="tmAxis" value="time"><span>時間に比例</span></label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="tmbox" id="tmBox"></div>
+    <p class="hint" id="tmHint"></p>
+  </section>
+
   <footer class="foot"><ul id="foot"></ul></footer>
 </div>
 
-<script type="application/json" id="data">{"title":"スイッチで LED の模様を流す（leds.c）","tool":"picviewer 0.2.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"RB0 のスイッチを押すと、PORTC の LED 8 個の模様を 0.5 秒ごとに変える","fosc_hz":4000000,"source_name":"pic16f886/leds.c","source":["// leds.c  スイッチを押すと、PORTC の LED 8 個の模様を 0.5 秒ごとに変える","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RB0 = スイッチ（押すと 1。プルダウン抵抗つき）、RC0-RC7 = LED（1 で点灯）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","","const unsigned char PATTERN[4] = { 0x0F, 0xF0, 0xAA, 0x55 };","","void main(void)","{","    unsigned char i;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;","    TRISB  = 0b11111111;        // RB0 はスイッチの入力","    TRISC  = 0b00000000;        // PORTC は全部 LED の出力","    PORTC  = 0b00000000;        // LED を全部消す","","    while (PORTBbits.RB0 == 0) {    // スイッチが押されるまで待つ","    }","","    while (1) {","        for (i = 0; i < 4; i++) {","            PORTC = PATTERN[i];     // 模様を出す","            __delay_ms(500);","        }","        PORTC = 0b00000001;         // 1 個だけ点けて","        for (i = 0; i < 7; i++) {","            __delay_ms(500);","            PORTC = PORTC << 1;     // 左へ送る","        }","        __delay_ms(500);","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":18,"addr":"0x780","cycles":13,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":18,"next":19,"addr":"0x784","cycles":17,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":19,"next":20,"addr":"0x787","cycles":20,"v":[96,0,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":20,"next":21,"addr":"0x788","cycles":21,"v":[96,0,0,255,255,0,0],"skipped_us":0},{"kind":"step","exec":21,"next":22,"addr":"0x78c","cycles":25,"v":[96,0,0,255,255,0,0],"skipped_us":0},{"kind":"step","exec":22,"next":23,"addr":"0x78d","cycles":26,"v":[96,0,0,255,0,0,0],"skipped_us":0},{"kind":"step","exec":23,"next":26,"addr":"0x790","cycles":29,"v":[96,0,0,255,0,0,0],"skipped_us":0},{"kind":"write","exec":30,"next":31,"addr":"0x7a0","cycles":54,"v":[96,0,0,255,0,1,15],"watch":"PORTC","inputs":{"RB0":"high"},"input_note":"スイッチを押す","skipped_us":0},{"kind":"write","exec":30,"next":31,"addr":"0x7a0","cycles":597,"v":[96,0,0,255,0,1,240],"watch":"PORTC","skipped_us":499500},{"kind":"write","exec":30,"next":31,"addr":"0x7a0","cycles":1140,"v":[96,0,0,255,0,1,170],"watch":"PORTC","skipped_us":999000},{"kind":"write","exec":30,"next":31,"addr":"0x7a0","cycles":1683,"v":[96,0,0,255,0,1,85],"watch":"PORTC","skipped_us":1498500},{"kind":"write","exec":33,"next":34,"addr":"0x7bf","cycles":2209,"v":[96,0,0,255,0,1,1],"watch":"PORTC","skipped_us":1998000},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":2730,"v":[96,0,0,255,0,1,2],"watch":"PORTC","skipped_us":2497500},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":3259,"v":[96,0,0,255,0,1,4],"watch":"PORTC","skipped_us":2997000},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":3788,"v":[96,0,0,255,0,1,8],"watch":"PORTC","skipped_us":3496500},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":4317,"v":[96,0,0,255,0,1,16],"watch":"PORTC","skipped_us":3996000},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":4846,"v":[96,0,0,255,0,1,32],"watch":"PORTC","skipped_us":4495500},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":5375,"v":[96,0,0,255,0,1,64],"watch":"PORTC","skipped_us":4995000},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":5904,"v":[96,0,0,255,0,1,128],"watch":"PORTC","skipped_us":5494500}],"waves":[],"notes":{"18":"内部発振器を 4 MHz に設定する（リセット時と同じ値）。","19":"PORTA 側のアナログ入力を無効にする。","20":"PORTB 側のアナログ入力を無効にする。RB0 はここからデジタルで読める（スイッチ用）。","21":"PORTB を全部入力にする。RB0 にスイッチをつないである。","22":"PORTC を全部出力にする。8 個の LED をつないである。","23":"LED を全部消す。次はスイッチが押されるのを待つループ。","25":"スイッチが押されるまで、ここをくり返して待つ。RB0 は 0（押していない）。","26":"スイッチが押されるまで、ここをくり返して待つ。RB0 は 0（押していない）。","30":"表の模様（0x0F、0xF0、0xAA、0x55）を順に PORTC に出す。このあと 0.5 秒待つ。","33":"LED を 1 個（RC0）だけ点ける。","36":"PORTC を 1 ビット左へずらして、点いている LED を 1 つ左へ送る。このあと 0.5 秒待つ。"},"circuit":{"type":"leds","port":"C","r_ohm":330,"switch":{"pin":"RB0","active":"high"}},"counters":[]}]}</script>
+<script type="application/json" id="data">{"title":"スイッチで LED の模様を流す（leds.c）","tool":"picviewer 0.3.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"RB0 のスイッチを押すと、PORTC の LED 8 個の模様を 0.5 秒ごとに変える","fosc_hz":4000000,"source_name":"pic16f886/leds.c","source":["// leds.c  スイッチを押すと、PORTC の LED 8 個の模様を 0.5 秒ごとに変える","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RB0 = スイッチ（押すと 1。プルダウン抵抗つき）、RC0-RC7 = LED（1 で点灯）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","","const unsigned char PATTERN[4] = { 0x0F, 0xF0, 0xAA, 0x55 };","","void main(void)","{","    unsigned char i;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;","    TRISB  = 0b11111111;        // RB0 はスイッチの入力","    TRISC  = 0b00000000;        // PORTC は全部 LED の出力","    PORTC  = 0b00000000;        // LED を全部消す","","    while (PORTBbits.RB0 == 0) {    // スイッチが押されるまで待つ","    }","","    while (1) {","        for (i = 0; i < 4; i++) {","            PORTC = PATTERN[i];     // 模様を出す","            __delay_ms(500);","        }","        PORTC = 0b00000001;         // 1 個だけ点けて","        for (i = 0; i < 7; i++) {","            __delay_ms(500);","            PORTC = PORTC << 1;     // 左へ送る","        }","        __delay_ms(500);","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":18,"addr":"0x780","cycles":13,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":18,"next":19,"addr":"0x784","cycles":17,"v":[96,31,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":19,"next":20,"addr":"0x787","cycles":20,"v":[96,0,63,255,255,0,0],"skipped_us":0},{"kind":"step","exec":20,"next":21,"addr":"0x788","cycles":21,"v":[96,0,0,255,255,0,0],"skipped_us":0},{"kind":"step","exec":21,"next":22,"addr":"0x78c","cycles":25,"v":[96,0,0,255,255,0,0],"skipped_us":0},{"kind":"step","exec":22,"next":23,"addr":"0x78d","cycles":26,"v":[96,0,0,255,0,0,0],"skipped_us":0},{"kind":"step","exec":23,"next":26,"addr":"0x790","cycles":29,"v":[96,0,0,255,0,0,0],"skipped_us":0},{"kind":"write","exec":30,"next":31,"addr":"0x7a0","cycles":54,"v":[96,0,0,255,0,1,15],"watch":"PORTC","inputs":{"RB0":"high"},"input_note":"スイッチを押す","skipped_us":0},{"kind":"write","exec":30,"next":31,"addr":"0x7a0","cycles":597,"v":[96,0,0,255,0,1,240],"watch":"PORTC","skipped_us":499500},{"kind":"write","exec":30,"next":31,"addr":"0x7a0","cycles":1140,"v":[96,0,0,255,0,1,170],"watch":"PORTC","skipped_us":999000},{"kind":"write","exec":30,"next":31,"addr":"0x7a0","cycles":1683,"v":[96,0,0,255,0,1,85],"watch":"PORTC","skipped_us":1498500},{"kind":"write","exec":33,"next":34,"addr":"0x7bf","cycles":2209,"v":[96,0,0,255,0,1,1],"watch":"PORTC","skipped_us":1998000},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":2730,"v":[96,0,0,255,0,1,2],"watch":"PORTC","skipped_us":2497500},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":3259,"v":[96,0,0,255,0,1,4],"watch":"PORTC","skipped_us":2997000},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":3788,"v":[96,0,0,255,0,1,8],"watch":"PORTC","skipped_us":3496500},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":4317,"v":[96,0,0,255,0,1,16],"watch":"PORTC","skipped_us":3996000},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":4846,"v":[96,0,0,255,0,1,32],"watch":"PORTC","skipped_us":4495500},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":5375,"v":[96,0,0,255,0,1,64],"watch":"PORTC","skipped_us":4995000},{"kind":"write","exec":36,"next":37,"addr":"0x7d9","cycles":5904,"v":[96,0,0,255,0,1,128],"watch":"PORTC","skipped_us":5494500}],"waves":[],"notes":{"18":"内部発振器を 4 MHz に設定する（リセット時と同じ値）。","19":"PORTA 側のアナログ入力を無効にする。","20":"PORTB 側のアナログ入力を無効にする。RB0 はここからデジタルで読める（スイッチ用）。","21":"PORTB を全部入力にする。RB0 にスイッチをつないである。","22":"PORTC を全部出力にする。8 個の LED をつないである。","23":"LED を全部消す。次はスイッチが押されるのを待つループ。","25":"スイッチが押されるまで、ここをくり返して待つ。RB0 は 0（押していない）。","26":"スイッチが押されるまで、ここをくり返して待つ。RB0 は 0（押していない）。","30":"表の模様（0x0F、0xF0、0xAA、0x55）を順に PORTC に出す。このあと 0.5 秒待つ。","33":"LED を 1 個（RC0）だけ点ける。","36":"PORTC を 1 ビット左へずらして、点いている LED を 1 つ左へ送る。このあと 0.5 秒待つ。"},"circuit":{"type":"leds","port":"C","r_ohm":330,"switch":{"pin":"RB0","active":"high"}},"counters":[]}]}</script>
 <script>
 window.PicViewer = { circuits: {}, util: {} };
-/* leds: one LED (with its resistor) on each pin of a port, and an optional push switch on an input pin. */
+/* leds: push switches on input pins and one LED (with its resistor) on each pin of a port.
+   Each switch is either to the supply with a pull-down (active "high": pressed reads 1)
+   or to GND with a pull-up (active "low": pressed reads 0). */
 (() => {
   'use strict';
 
-  const COL0 = 230;      // x of the first LED column
-  const DX = 62;         // spacing of the columns
-  const RAIL = 290;      // y of the common rail under the LEDs
+  const X0 = 70;         // x of the first column
+  const SW_DX = 74;      // width of a switch column
+  const LED_DX = 62;     // width of an LED column
+  const RAIL = 300;      // y of the GND rail
+  const NODE = 172;      // y where a switch, its resistor and the pin meet
 
-  function columns(t, cfg) {
+  function ledColumns(t, cfg) {
     const port = String(cfg.port || 'C').toUpperCase();
     if (Array.isArray(cfg.bits) && cfg.bits.length) return { port, bits: cfg.bits.map(Number) };
     const tris = t.regs.find((r) => r.name === 'TRIS' + port);
@@ -311,54 +356,71 @@ window.PicViewer = { circuits: {}, util: {} };
     return { port, bits };
   }
 
+  function layout(t, cfg, U) {
+    const { port, bits } = ledColumns(t, cfg);
+    const sws = U.switchStates(cfg, {});
+    const ledStart = X0 + sws.length * SW_DX + (sws.length ? 16 : 0);
+    const right = ledStart + (bits.length - 1) * LED_DX + 40;
+    return { port, bits, sws, ledStart, right };
+  }
+
   function drawing(t, cfg, U) {
-    const { port, bits } = columns(t, cfg);
+    const L = layout(t, cfg, U);
     const high = cfg.active !== 'low';
-    const sw = cfg.switch && U.portBit(cfg.switch.pin) ? cfg.switch : null;
-    const right = COL0 + (bits.length - 1) * DX + 50;
-    const svg = U.svgEl('svg', { id: 'cir', viewBox: `0 0 ${Math.max(right + 30, 560)} 330`, role: 'img', 'aria-label': `${port} の LED の回路` });
-    const add = (tag, attrs, text) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; svg.append(e); return e; };
+    const vdd = `+${t.vdd || 5}V`;
+    const svg = U.svgEl('svg', { id: 'cir', viewBox: `0 0 ${Math.max(L.right + 40, 560)} 340`, role: 'img', 'aria-label': `PORT${L.port} の LED とスイッチの回路` });
+    const add = (tag, attrs, text, parent = svg) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; parent.append(e); return e; };
     const defs = U.svgEl('defs');
     defs.append(U.svgEl('path', { id: 'ah', d: 'M-6 -6.5 L7 0 L-6 6.5 Z' }));
     svg.append(defs);
     const wires = add('g', { class: 'wire' });
     const wire = (d) => wires.append(U.svgEl('path', { d }));
     add('g', { id: 'gCur' });
-    add('rect', { class: 'body', x: COL0 - 40, y: 24, width: right - COL0 + 20, height: 68, rx: 6 });
-    add('text', { x: COL0 - 32, y: 46, class: 'small', 'font-weight': '700' }, `${t.device}  PORT${port}`);
-    wire(`M${(sw ? 30 : COL0 - 40)} ${RAIL} H${right}`);
-    add('text', { class: 'dim small', x: right - 120, y: RAIL + 22 }, high ? 'GND (0 V) の線' : `+${t.vdd || 5} V の線`);
-    bits.forEach((b, i) => {
-      const cx = COL0 + i * DX;
-      const name = `R${port}${b}`;
-      add('text', { class: 'small', x: cx, y: 84, 'text-anchor': 'middle' }, name);
-      add('text', { class: 'dim small', x: cx, y: 110, 'text-anchor': 'middle' }, `${U.pinsWith(t, name).join('、')} 番`);
+    add('rect', { class: 'body', x: X0 - 45, y: 20, width: L.right - X0 + 45, height: 72, rx: 6 });
+    add('text', { x: X0 - 37, y: 40, class: 'small', 'font-weight': '700' }, t.device);
+    const pinLabel = (x, name) => {
+      add('text', { class: 'small', x, y: 66, 'text-anchor': 'middle' }, name);
+      add('text', { class: 'dim small', x, y: 84, 'text-anchor': 'middle' }, `${U.pinsWith(t, name).join('、')} 番`);
+      add('circle', { class: 'dot', cx: x, cy: 92, r: 4 });
+    };
+    wire(`M${X0 - 30} ${RAIL} H${L.right}`);
+    add('text', { class: 'dim small', x: L.right - 120, y: RAIL + 24 }, 'GND (0 V) の線');
+    L.sws.forEach((s, k) => {
+      const x = X0 + k * SW_DX;
+      pinLabel(x, s.pin);
+      add('circle', { class: 'dot', cx: x, cy: NODE, r: 4 });
+      const g = add('g', { class: 'sw', 'data-pin': s.pin });
+      if (s.low) {
+        // pull-up to the supply on the right, switch down to GND
+        wire(`M${x} 92 V${NODE} H${x + 22} V158 M${x + 22} 114 V108 M${x} ${NODE} V198 M${x} 230 V${RAIL}`);
+        add('rect', { class: 'comp', x: x + 15, y: 114, width: 14, height: 44, rx: 2 });
+        add('text', { class: 'dim small', x: x + 22, y: 104, 'text-anchor': 'middle' }, vdd);
+        g.append(U.svgEl('line', { class: 'lever', x1: x, y1: 230, x2: x, y2: 198, style: `transform-origin:${x}px 230px` }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x, cy: 198, r: 3.5 }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x, cy: 230, r: 3.5 }));
+        add('text', { class: 'small', x: x + 10, y: 250 }, s.label);
+      } else {
+        // switch up to the supply on the right, pull-down to GND
+        wire(`M${x} 92 V${NODE} H${x + 22} V150 M${x + 22} 118 V108 M${x} ${NODE} V196 M${x} 240 V${RAIL}`);
+        add('text', { class: 'dim small', x: x + 22, y: 104, 'text-anchor': 'middle' }, vdd);
+        g.append(U.svgEl('line', { class: 'lever', x1: x + 22, y1: 150, x2: x + 22, y2: 118, style: `transform-origin:${x + 22}px 150px` }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x + 22, cy: 118, r: 3.5 }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x + 22, cy: 150, r: 3.5 }));
+        add('rect', { class: 'comp', x: x - 7, y: 196, width: 14, height: 44, rx: 2 });
+        add('text', { class: 'small', x: x + 30, y: 140 }, s.label);
+      }
+    });
+    L.bits.forEach((b, i) => {
+      const cx = L.ledStart + i * LED_DX;
+      pinLabel(cx, `R${L.port}${b}`);
       wire(`M${cx} 92 V118 M${cx} 162 V188 M${cx} 216 V${RAIL}`);
-      add('circle', { class: 'dot', cx, cy: 92, r: 4 });
       add('rect', { class: 'comp', x: cx - 8, y: 118, width: 16, height: 44, rx: 2 });
       const g = add('g', { class: 'ledg', 'data-bit': String(b) });
-      g.append(U.svgEl('circle', { class: 'halo', cx, cy: 202, r: 20 }));
-      g.append(U.svgEl('path', { class: 'led-body', d: high ? `M${cx - 13} 190 H${cx + 13} L${cx} 212 Z` : `M${cx - 13} 214 H${cx + 13} L${cx} 192 Z` }));
-      g.append(U.svgEl('line', { class: 'led-bar', x1: cx - 13, x2: cx + 13, y1: high ? 214 : 190, y2: high ? 214 : 190 }));
+      add('circle', { class: 'halo', cx, cy: 202, r: 20 }, undefined, g);
+      add('path', { class: 'led-body', d: high ? `M${cx - 13} 190 H${cx + 13} L${cx} 212 Z` : `M${cx - 13} 214 H${cx + 13} L${cx} 192 Z` }, undefined, g);
+      add('line', { class: 'led-bar', x1: cx - 13, x2: cx + 13, y1: high ? 214 : 190, y2: high ? 214 : 190 }, undefined, g);
     });
-    add('text', { class: 'dim small', x: COL0 - 32, y: RAIL + 22 }, `各 LED に抵抗 ${cfg.r_ohm || 330} Ω`);
-    if (sw) {
-      const pb = U.portBit(sw.pin);
-      const up = sw.active !== 'low';      // switch to the supply with a pull-down, or to GND with a pull-up
-      add('text', { class: 'small', x: 22, y: 20 }, up ? `+${t.vdd || 5} V` : 'GND');
-      wire(`M60 26 V40 M60 72 V150 M60 150 H150 V60 H${COL0 - 40} M60 150 V180 M60 224 V${RAIL}`);
-      add('circle', { class: 'dot', cx: COL0 - 40, cy: 60, r: 4 });
-      const g = add('g', { class: 'sw', id: 'swBtn' });
-      g.append(U.svgEl('line', { class: 'lever', x1: 60, y1: 72, x2: 60, y2: 40, style: 'transform-origin:60px 72px' }));
-      g.append(U.svgEl('circle', { class: 'dot', cx: 60, cy: 40, r: 3.5 }));
-      g.append(U.svgEl('circle', { class: 'dot', cx: 60, cy: 72, r: 3.5 }));
-      add('circle', { class: 'dot', cx: 60, cy: 150, r: 4 });
-      add('rect', { class: 'comp', x: 52, y: 180, width: 16, height: 44, rx: 2 });
-      add('text', { class: 'small', x: 76, y: 60 }, 'スイッチ');
-      add('text', { class: 'dim small', x: 76, y: 206 }, up ? 'プルダウン' : 'プルアップ');
-      add('text', { class: 'small', x: 76, y: 142 }, `${sw.pin}  ${U.pinsWith(t, sw.pin).join('、')} 番`);
-      svg.dataset.swPort = pb.port;
-    }
+    add('text', { class: 'dim small', x: L.ledStart - 20, y: RAIL + 24 }, `各 LED に抵抗 ${cfg.r_ohm || 330} Ω`);
     return svg;
   }
 
@@ -367,63 +429,60 @@ window.PicViewer = { circuits: {}, util: {} };
     options: [],
     setup(ctx) {
       const { t, cfg, box, U } = ctx;
-      const { port, bits } = columns(t, cfg);
+      const L = layout(t, cfg, U);
       box.append(drawing(t, cfg, U));
       const high = cfg.active !== 'low';
-      const marks = bits.flatMap((b) => ['TRIS', 'PORT', 'LAT'].map((p) => ({ reg: p + port, bit: b })));
-      const sw = cfg.switch && U.portBit(cfg.switch.pin);
-      if (sw) marks.push({ reg: 'PORT' + sw.port, bit: sw.bit });
+      const marks = L.bits.flatMap((b) => ['TRIS', 'PORT', 'LAT'].map((p) => ({ reg: p + L.port, bit: b })));
+      L.sws.forEach((s) => { const pb = U.portBit(s.pin); marks.push({ reg: 'PORT' + pb.port, bit: pb.bit }); });
+      const swText = L.sws.length
+        ? `スイッチ: ${L.sws.map((s) => `${s.label}（${s.pin}、押すと ${s.low ? '0' : '1'}）`).join('、')}。`
+        : '';
       return {
         sub: 'LED と抵抗とスイッチのつなぎ方は仮定',
-        assume: `LED は ${high ? 'ピンが 1 のとき（ピンから抵抗、LED を通って GND へ）' : 'ピンが 0 のとき（電源から LED、抵抗を通ってピンへ）'}点灯する。`
-          + (sw ? `スイッチは押すと ${cfg.switch.pin} が ${cfg.switch.active === 'low' ? '0' : '1'} になる。` : ''),
-        regHint: `太い枠のビットが LED${sw ? 'とスイッチ' : ''}のピン。`,
+        assume: `LED は ${high ? 'ピンが 1 のとき（ピンから抵抗、LED を通って GND へ）' : 'ピンが 0 のとき（電源から LED、抵抗を通ってピンへ）'}点灯する。${swText}`,
+        regHint: `太い枠のビットが LED${L.sws.length ? 'とスイッチ' : ''}のピン。`,
         marks,
-        foot: ['LED、抵抗、スイッチのつなぎ方は仮定。実際の基板に合わせて circuit の値を直す。'],
+        foot: ['LED、抵抗、スイッチのつなぎ方は仮定。実際の基板に合わせて circuit の値を直す。シミュレータはプルアップを持たないので、離したスイッチの値も trace の set で入れる。'],
       };
     },
     update(ctx) {
-      const { t, cfg, box, R, U } = ctx;
+      const { t, cfg, box, R, U, inputs } = ctx;
       const svg = box.querySelector('#cir');
       if (!svg) return {};
-      const { port, bits } = columns(t, cfg);
+      const L = layout(t, cfg, U);
       const high = cfg.active !== 'low';
-      const latch = U.latchOf(R, port);
-      const tris = R['TRIS' + port];
+      const latch = U.latchOf(R, L.port);
+      const tris = R['TRIS' + L.port];
       if (latch === undefined || tris === undefined) {
-        return { text: `TRIS${port} と PORT${port}（または LAT${port}）を registers に入れると LED が描ける。` };
+        return { text: `TRIS${L.port} と PORT${L.port}（または LAT${L.port}）を registers に入れると LED が描ける。` };
       }
       const g = svg.querySelector('#gCur');
       g.replaceChildren();
       const lit = [];
-      bits.forEach((b, i) => {
-        const out = ((tris >> b) & 1) === 0;
-        const on = out && ((latch >> b) & 1) === (high ? 1 : 0);
+      L.bits.forEach((b, i) => {
+        const on = ((tris >> b) & 1) === 0 && ((latch >> b) & 1) === (high ? 1 : 0);
         svg.querySelector(`.ledg[data-bit="${b}"]`).classList.toggle('lit', on);
         if (on) {
-          lit.push(`R${port}${b}`);
-          const cx = COL0 + i * DX;
-          U.drawPath(g, [[cx, 92], [cx, RAIL]], '', { arrows: high ? [[cx, 174, 90], [cx, 252, 90]] : [[cx, 174, -90], [cx, 252, -90]] });
+          lit.push(`R${L.port}${b}`);
+          const cx = L.ledStart + i * LED_DX;
+          U.drawPath(g, [[cx, 92], [cx, RAIL]], '', { arrows: high ? [[cx, 174, 90], [cx, 258, 90]] : [[cx, 174, -90], [cx, 258, -90]] });
         }
       });
-      let pressed = null;
-      if (cfg.switch && svg.dataset.swPort) {
-        const pb = U.portBit(cfg.switch.pin);
-        const level = R['PORT' + pb.port] !== undefined ? (R['PORT' + pb.port] >> pb.bit) & 1 : null;
-        if (level !== null) pressed = level === (cfg.switch.active === 'low' ? 0 : 1);
-        svg.querySelector('#swBtn').classList.toggle('on', Boolean(pressed));
-      }
-      const pattern = bits.reduce((acc, b) => acc + (((latch >> b) & 1) ? '1' : '0'), '');
+      const sw = U.switchStates(cfg, R, inputs).filter((s) => s.down !== null);
+      sw.forEach((s) => svg.querySelector(`.sw[data-pin="${s.pin}"]`).classList.toggle('on', s.down));
+      const pressedNames = sw.filter((s) => s.down).map((s) => s.label);
+      const known = sw.length;
+      const pattern = L.bits.reduce((acc, b) => acc + (((latch >> b) & 1) ? '1' : '0'), '');
       const status = [
-        { label: `PORT${port} の出力`, value: `${U.hex(latch)}（${pattern}）`, tone: lit.length ? 'on' : '' },
+        { label: `PORT${L.port} の出力`, value: `${U.hex(latch)}（${pattern}）`, tone: lit.length ? 'on' : '' },
         { label: '点灯', value: `${lit.length} 個`, tone: lit.length ? 'on' : '' },
       ];
-      if (pressed !== null) status.push({ label: 'スイッチ', value: pressed ? '押している' : '離している', tone: pressed ? 'on' : '' });
-      const swText = pressed === null ? '' : pressed ? 'スイッチは押してある。' : 'スイッチは離してある。';
+      if (known) status.push({ label: '押しているスイッチ', value: pressedNames.join('、') || 'なし', tone: pressedNames.length ? 'on' : '' });
+      const swText = !known ? '' : pressedNames.length ? `押しているスイッチ: ${pressedNames.join('、')}。` : 'スイッチはどれも離してある。';
       return {
         status,
-        text: (lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。') + swText,
-        probe: { pattern, lit: lit.length, pressed },
+        text: (lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。') + swText + U.mismatchText(sw),
+        probe: { pattern, lit: lit.length, pressed: known ? pressedNames.length > 0 : null, pressedNames },
       };
     },
   };
@@ -499,7 +558,7 @@ window.PicViewer = { circuits: {}, util: {} };
   const NS = 'http://www.w3.org/2000/svg';
   const PLAY_MS = 1400;
   const $ = (id) => document.getElementById(id);
-  const S = { t: 0, step: 0, opts: {}, timer: null, probe: null };
+  const S = { t: 0, step: 0, opts: {}, timer: null, probe: null, tmMode: 'step', tm: null };
 
   // ---------------- helpers, also used by the circuits
   const el = (tag, cls, text) => {
@@ -527,6 +586,31 @@ window.PicViewer = { circuits: {}, util: {} };
   };
   // the output latch of a port: LATx when it was read, PORTx otherwise
   const latchOf = (R, port) => (R['LAT' + port] !== undefined ? R['LAT' + port] : R['PORT' + port]);
+  const levelBit = (v) => (v === 'high' ? 1 : v === 'low' ? 0 : Number.parseFloat(v) >= 2.5 ? 1 : 0);
+  // circuit.switches (or the older single circuit.switch) with each one's state. The level put on the pin
+  // (trace "set") decides whether it is pressed; the PORT bit is what the program reads, which differs while
+  // the pin is still an analog input or an output. Without a set level, the PORT bit is all there is.
+  const switchStates = (cfg, R, inputs = {}) => {
+    const raw = Array.isArray(cfg.switches) ? cfg.switches : cfg.switch ? [cfg.switch] : [];
+    return raw.filter((s) => s && portBit(s.pin)).map((s) => {
+      const pb = portBit(s.pin);
+      const pin = s.pin.toUpperCase();
+      const reg = R['PORT' + pb.port];
+      const read = reg === undefined ? null : (reg >> pb.bit) & 1;
+      const set = inputs[pin] === undefined ? null : levelBit(inputs[pin]);
+      const level = set !== null ? set : read;
+      const low = s.active === 'low';
+      return { pin, label: s.label || pin, low, level, read, down: level === null ? null : level === (low ? 0 : 1),
+        mismatch: set !== null && read !== null && set !== read };
+    });
+  };
+  // switch pins that read differently from their level, in words (empty when they all agree)
+  const mismatchText = (sw) => {
+    const groups = {};
+    sw.filter((s) => s.mismatch).forEach((s) => { (groups[`${s.level}${s.read}`] ||= []).push(s); });
+    return Object.values(groups).map((g) => `${g.map((s) => s.pin).join('、')} はピンが ${g[0].level} なのに、`
+      + `プログラムには ${g[0].read} と読める（アナログ入力のままか、出力にしている）。`).join('');
+  };
   // a current path: an orange line, moving dots, and arrows (explicit [x, y, angle] or along long segments)
   function drawPath(g, pts, cls, opt = {}) {
     const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
@@ -544,7 +628,7 @@ window.PicViewer = { circuits: {}, util: {} };
       arrow(mx, my, Math.atan2(q[1] - p[1], q[0] - p[0]) * 180 / Math.PI);
     });
   }
-  PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, drawPath };
+  PV.util = { el, svgEl, num, hex, pinsWith, portBit, latchOf, switchStates, mismatchText, drawPath };
 
   // ---------------- data helpers
   const tgt = () => D.targets[S.t];
@@ -555,6 +639,13 @@ window.PicViewer = { circuits: {}, util: {} };
   const bitName = (r, b) => r.bits[b] || `${r.name}<${b}>`;
   const codeOf = (line) => { const i = line.indexOf('//'); return (i < 0 ? line : line.slice(0, i)).trim(); };
   const fmtTime = (s) => (s < 1e-3 ? `${num(s * 1e6, 1)} µs` : s < 1 ? `${num(s * 1e3, 3)} ms` : `${num(s, 3)} 秒`);
+
+  // the levels put on input pins up to step k (trace "set"), as the switches really are
+  function inputsAt(t, k) {
+    const out = {};
+    for (let i = 0; i <= k && i < t.steps.length; i++) Object.assign(out, t.steps[i].inputs || {});
+    return out;
+  }
 
   function regsAt(t, step) {
     const R = {};
@@ -692,6 +783,7 @@ window.PicViewer = { circuits: {}, util: {} };
     $('regHint').textContent = ['オレンジの枠は直前のステップから変わったビット。- はそのマイコンに無いビット。', info.regHint || '', counterHint]
       .filter(Boolean).join(' ');
     buildFoot(t, info.foot || []);
+    buildTiming(t);
     update();
   }
 
@@ -709,7 +801,17 @@ window.PicViewer = { circuits: {}, util: {} };
     const inputs = st.inputs
       ? `入力を変えた: ${Object.entries(st.inputs).map(([p, v]) => `${p} = ${levelText(v)}`).join('、')}${st.input_note ? `（${st.input_note}）` : ''}。`
       : '';
-    if (st.exec === null) {
+    if (st.kind === 'timeout') {
+      const ran = st.cycles - (prev ? prev.cycles : 0);
+      const s1 = secondsOf(t, st);
+      const span = s1 === null ? `${ran} サイクル`
+        : `${ran} サイクル、${t.fast_forward ? '縮めた待ちを足すと' : ''}約 ${fmtTime(s1 - (prev ? secondsOf(t, prev) : 0))}`;
+      $('exNo').textContent = '';
+      $('exCode').textContent = `${st.watch} への書き込みなし`;
+      $('exNote').textContent = inputs + `${st.watch} に書かないまま待ったので、シミュレータを止めた（その間 ${span}）。`
+        + (st.next ? `止めたときは ${st.next} 行目のあたりを実行していた。` : '')
+        + '入力が変わるのを待っているか、書き込みの無い所を回っている。待った長さは止め方で決まる（実機ならスイッチを押すまでの時間）。';
+    } else if (st.exec === null) {
       $('exNo').textContent = '';
       $('exCode').textContent = 'まだ無い';
       $('exNote').textContent = inputs + 'リセット直後。main の最初の行はまだ実行していない。';
@@ -729,16 +831,22 @@ window.PicViewer = { circuits: {}, util: {} };
     $('exDelta').textContent = prev ? (regsChanged.length ? `変わったレジスタ: ${regsChanged.join('、')}` : '変わったレジスタ: なし') : '';
     $('exDelta').className = regsChanged.length ? 'delta' : '';
     const sec = secondsOf(t, st);
+    const waited = t.steps.slice(0, S.step + 1).some((s) => s.kind === 'timeout') ? '。書かないまま待った時間を含む' : '';
     const time = sec === null ? '' : t.fast_forward
-      ? `（早送りで縮めた待ちを足すと ${fmtTime(sec)}）`
-      : `（${fmtTime(sec)}）`;
-    $('exMeta').textContent = `次に実行する行: ${st.next} 行目（アドレス ${st.addr}）　リセットからの命令サイクル数: ${st.cycles}${time}`;
+      ? `（早送りで縮めた待ちを足すと ${fmtTime(sec)}${waited}）`
+      : `（${fmtTime(sec)}${waited}）`;
+    const next = st.next === null ? '不明' : `${st.next} 行目`;
+    $('exMeta').textContent = `次に実行する行: ${next}（アドレス ${st.addr}）　リセットからの命令サイクル数: ${st.cycles}${time}`;
   }
 
   function paintSource(st) {
     const code = $('code');
-    code.querySelectorAll('li').forEach((li) => li.classList.toggle('cur', Number(li.dataset.line) === st.exec));
-    const cur = code.querySelector('li.cur');
+    code.querySelectorAll('li').forEach((li) => {
+      const no = Number(li.dataset.line);
+      li.classList.toggle('cur', no === st.exec);
+      li.classList.toggle('at', st.kind === 'timeout' && no === st.next);   // where a wait was cut short
+    });
+    const cur = code.querySelector('li.cur') || code.querySelector('li.at');
     if (cur && code.scrollHeight > code.clientHeight) {   // keep the executed line inside the listing's own scroll box
       const box = code.getBoundingClientRect();
       const row = cur.getBoundingClientRect();
@@ -812,6 +920,169 @@ window.PicViewer = { circuits: {}, util: {} };
     });
   }
 
+  // ---------------- timing diagram: the registers that change somewhere in the record.
+  // Port pins get one row per bit that changes; other registers one band with the value in hex.
+  const TM = { LW: 112, RH: 22, TOP: 30, FOOT: 26, MIN_DX: 9, MAX_ROWS: 40 };
+  const PIN_REG = /^(PORT|LAT)[A-Z]$/;
+
+  function timingRows(t) {
+    const bits = [];
+    const bands = [];
+    t.regs.forEach((r, i) => {
+      if (isCounter(t, r.name)) return;
+      const vals = t.steps.map((s) => s.v[i] & r.mask);
+      if (vals.every((v) => v === vals[0])) return;
+      if (!PIN_REG.test(r.name)) { bands.push({ band: true, i, name: r.name, reg: r.name }); return; }
+      for (let b = 7; b >= 0; b--) {
+        if ((r.mask >> b) & 1 && vals.some((v) => ((v ^ vals[0]) >> b) & 1)) bits.push({ band: false, i, b, name: bitName(r, b), reg: r.name });
+      }
+    });
+    return [...bits, ...bands];
+  }
+
+  // x of every step. 'step': evenly spaced. 'time': in proportion to time, except two kinds of gap that
+  // are drawn as a break of fixed length: a gap next to a cut-short wait (its length is only how long we
+  // waited), and a gap longer than three times the 90th percentile of the other gaps.
+  function timingXs(t, width, mode) {
+    const n = t.steps.length;
+    const even = () => ({ xs: t.steps.map((_, k) => (n > 1 ? (k * width) / (n - 1) : 0)), breaks: [] });
+    if (mode !== 'time' || n < 2) return even();
+    const at = t.steps.map((s) => (instrHz(t) ? secondsOf(t, s) : s.cycles));
+    const gaps = at.slice(1).map((v, k) => v - at[k]);
+    const waits = gaps.map((_, k) => t.steps[k].kind === 'timeout' || t.steps[k + 1].kind === 'timeout');
+    const pos = gaps.filter((g, k) => g > 0 && !waits[k]).sort((a, b) => a - b);
+    if (!pos.length) return even();
+    const cap = pos[Math.floor((pos.length - 1) * 0.9)] * 3;
+    const cut = gaps.map((g, k) => waits[k] || g > cap);
+    const used = gaps.map((g, k) => (cut[k] ? cap : g));
+    const total = used.reduce((s, g) => s + g, 0);
+    const xs = [0];
+    const breaks = [];
+    used.forEach((g, k) => {
+      xs.push(xs[k] + (g / total) * width);
+      if (cut[k]) breaks.push({ x: (xs[k] + xs[k + 1]) / 2, real: gaps[k] });
+    });
+    return { xs, breaks };
+  }
+
+  function buildTiming(t) {
+    const box = $('tmBox');
+    box.replaceChildren();
+    const rows = timingRows(t).slice(0, TM.MAX_ROWS);
+    const n = t.steps.length;
+    S.tm = null;
+    if (!rows.length || n < 2) {
+      $('tmHint').textContent = 'この記録の中で値の変わったレジスタが無い。';
+      return;
+    }
+    const avail = Math.max(240, box.clientWidth - TM.LW - 28);
+    const width = S.tmMode === 'time' ? avail : Math.max(avail, (n - 1) * TM.MIN_DX);
+    const { xs, breaks } = timingXs(t, width, S.tmMode);
+    const X = (k) => TM.LW + 8 + xs[k];
+    const H = TM.TOP + rows.length * TM.RH + TM.FOOT;
+    const svg = svgEl('svg', { id: 'tm', width: String(TM.LW + width + 24), height: String(H), role: 'img',
+      'aria-label': `値の変わった ${rows.length} 行を、ステップ 0 から ${n - 1} まで並べた図` });
+    const add = (tag, attrs, text, parent = svg) => { const e = svgEl(tag, attrs); if (text !== undefined) e.textContent = text; parent.append(e); return e; };
+    // input changes and cut-short waits along the top
+    t.steps.forEach((st, k) => {
+      if (st.kind === 'timeout') add('line', { class: 'tmwait', x1: X(k), x2: X(k), y1: TM.TOP - 6, y2: H - TM.FOOT });
+      if (st.inputs) {
+        const g = add('g', { class: 'tmin' });
+        add('path', { d: `M${X(k) - 5} ${TM.TOP - 16} H${X(k) + 5} L${X(k)} ${TM.TOP - 7} Z` }, undefined, g);
+        add('title', {}, `ステップ ${k}: ${Object.entries(st.inputs).map(([p, v]) => `${p} = ${levelText(v)}`).join('、')}${st.input_note ? `（${st.input_note}）` : ''}`, g);
+      }
+    });
+    breaks.forEach((bk) => {
+      add('path', { class: 'tmbreak', d: `M${TM.LW + 8 + bk.x - 6} ${TM.TOP - 2} l6 -8 M${TM.LW + 8 + bk.x} ${TM.TOP - 2} l6 -8` });
+      add('title', {}, `ここは ${instrHz(t) ? fmtTime(bk.real) : `${bk.real} サイクル`} を縮めて描いた`,
+        add('rect', { class: 'tmhit', x: TM.LW + 8 + bk.x - 8, y: TM.TOP - 12, width: 18, height: 12 }));
+    });
+    const labels = [];
+    const end = X(n - 1) + 12;
+    rows.forEach((row, r) => {
+      const top = TM.TOP + r * TM.RH;
+      labels.push(add('text', { class: 'tmlabel', x: TM.LW - 4, y: top + TM.RH / 2 + 4, 'text-anchor': 'end' }, row.name));
+      if (row.band) {
+        // one band per run of the same value, with slanted ends where the value changes
+        const val = (k) => t.steps[k].v[row.i];
+        const lo = top + 4;
+        const hi = top + TM.RH - 5;
+        const mid = (lo + hi) / 2;
+        let from = 0;
+        for (let k = 1; k <= n; k++) {
+          if (k < n && val(k) === val(k - 1)) continue;
+          const x0 = X(from);
+          const x1 = k < n ? X(k) : end;
+          const g = add('g', { class: 'tmband' });
+          add('path', { d: x1 - x0 < 8 ? `M${x0} ${lo} V${hi}`
+            : `M${x0} ${mid} L${x0 + 3} ${lo} H${x1 - 3} L${x1} ${mid} L${x1 - 3} ${hi} H${x0 + 3} Z` }, undefined, g);
+          if (x1 - x0 >= 34) add('text', { x: (x0 + x1) / 2, y: mid + 4, 'text-anchor': 'middle' }, hex(val(from)), g);
+          add('title', {}, `${row.reg} = ${hex(val(from))}（ステップ ${from} から）`, g);
+          from = k;
+        }
+        return;
+      }
+      add('title', {}, `${row.reg} のビット ${row.b}`, labels[r]);
+      const yOf = (lv) => (lv ? top + 4 : top + TM.RH - 5);
+      const lv = (k) => (t.steps[k].v[row.i] >> row.b) & 1;
+      let d = `M${X(0)} ${yOf(lv(0))}`;
+      let fill = '';
+      let from = lv(0) ? X(0) : null;
+      for (let k = 1; k < n; k++) {
+        if (lv(k) !== lv(k - 1)) {
+          d += ` H${X(k)} V${yOf(lv(k))}`;
+          if (lv(k)) from = X(k);
+          else { fill += `M${from} ${top + 4} H${X(k)} V${top + TM.RH - 5} H${from} Z `; from = null; }
+        }
+      }
+      d += ` H${end}`;
+      if (from !== null) fill += `M${from} ${top + 4} H${end} V${top + TM.RH - 5} H${from} Z`;
+      if (fill) add('path', { class: 'tmhi', d: fill });
+      add('path', { class: 'tmwave', d });
+    });
+    // step numbers (or times) along the bottom, at least 70 px apart
+    let lastX = -1e9;
+    t.steps.forEach((st, k) => {
+      if (X(k) - lastX < 70 && k !== n - 1) return;
+      if (k === n - 1 && X(k) - lastX < 40) return;
+      lastX = X(k);
+      const sec = secondsOf(t, st);
+      const text = S.tmMode === 'time' && sec !== null ? fmtTime(sec) : String(k);
+      add('text', { class: 'tmtick', x: X(k), y: H - 8, 'text-anchor': k === 0 ? 'start' : k === n - 1 ? 'end' : 'middle' }, text);
+    });
+    const cursor = add('line', { class: 'tmcur', x1: X(0), x2: X(0), y1: TM.TOP - 4, y2: H - TM.FOOT + 2 });
+    svg.addEventListener('click', (e) => {
+      const rect = svg.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (Number(svg.getAttribute('width')) / rect.width);
+      let best = 0;
+      xs.forEach((_, k) => { if (Math.abs(X(k) - x) < Math.abs(X(best) - x)) best = k; });
+      stop();
+      setStep(best);
+    });
+    box.append(svg);
+    S.tm = { rows, X, cursor, labels };
+    const more = timingRows(t).length > rows.length ? `（多いので最初の ${TM.MAX_ROWS} 本だけ）` : '';
+    $('tmHint').textContent = `記録の中で値の変わったレジスタだけを並べた${more}。ポート（PORT、LAT）はビットごとの 0 と 1、ほかのレジスタは値（16 進）の帯。`
+      + '各ステップで止めて読んだ値なので、ステップの間の細かい動きは描いていない。縦の点線は書かないまま待って止めた所、上の三角は入力を変えた所。'
+      + (breaks.length ? '上の二本の斜線は、待った間と長すぎる間を詰めて描いた所（触れると本当の長さが出る）。' : '')
+      + '図をクリックすると、そのステップへ移る。';
+  }
+
+  function paintTiming(t, st, prev) {
+    if (!S.tm) return;
+    const x = S.tm.X(S.step);
+    S.tm.cursor.setAttribute('x1', x);
+    S.tm.cursor.setAttribute('x2', x);
+    S.tm.rows.forEach((row, r) => {
+      const diff = prev ? prev.v[row.i] ^ st.v[row.i] : 0;
+      S.tm.labels[r].classList.toggle('chg', row.band ? diff !== 0 : ((diff >> row.b) & 1) === 1);
+    });
+    const box = $('tmBox');
+    if (box.scrollWidth > box.clientWidth && (x < box.scrollLeft + TM.LW || x > box.scrollLeft + box.clientWidth - 40)) {
+      box.scrollLeft = Math.max(0, x - box.clientWidth / 2);
+    }
+  }
+
   function update() {
     const t = tgt();
     const st = t.steps[S.step];
@@ -824,11 +1095,12 @@ window.PicViewer = { circuits: {}, util: {} };
     paintSource(st);
     paintRegs(t, st, prev);
     const res = circuitOf(t).update({ ...ctxBase(t), st, prev, k: S.step, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null,
-      regsAt: (step) => regsAt(t, step), fmtTime, instrHz: instrHz(t), seconds: secondsOf(t, st) }) || {};
+      inputs: inputsAt(t, S.step), regsAt: (step) => regsAt(t, step), fmtTime, instrHz: instrHz(t), seconds: secondsOf(t, st) }) || {};
     paintStatus(res.status || []);
     $('cirText').textContent = res.text || '';
     S.probe = res.probe || null;
     paintWaves(t, st);
+    paintTiming(t, st, prev);
     writeHash(t);
   }
 
@@ -866,6 +1138,16 @@ window.PicViewer = { circuits: {}, util: {} };
   $('bLast').addEventListener('click', () => { stop(); setStep(last()); });
   $('bPlay').addEventListener('click', () => { if (S.timer) stop(); else play(); });
   $('slider').addEventListener('input', (e) => { stop(); setStep(Number(e.target.value)); });
+  document.querySelectorAll('input[name="tmAxis"]').forEach((r) => r.addEventListener('change', () => {
+    S.tmMode = r.value;
+    buildTiming(tgt());
+    update();
+  }));
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { buildTiming(tgt()); update(); }, 200);
+  });
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const tag = e.target.tagName;
@@ -884,7 +1166,9 @@ window.PicViewer = { circuits: {}, util: {} };
     const t = tgt();
     const st = t.steps[S.step];
     return { target: t.id, step: S.step, last: last(), exec: st.exec, next: st.next, kind: st.kind,
-      opts: { ...S.opts }, playing: Boolean(S.timer), probe: S.probe };
+      opts: { ...S.opts }, playing: Boolean(S.timer), probe: S.probe,
+      timing: S.tm ? { mode: S.tmMode, rows: S.tm.rows.map((r) => r.name), cursor: Number(S.tm.cursor.getAttribute('x1')),
+        changed: S.tm.rows.filter((_, r) => S.tm.labels[r].classList.contains('chg')).map((row) => row.name) } : null };
   };
 
   readHash();

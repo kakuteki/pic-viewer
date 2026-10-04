@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LED を点ける（led.c）</title>
+<title>スイッチで進む 7 セグメント LED（counter.c、計画は picviewer init が作ったまま）</title>
 <style>
 :root {
   color-scheme: light dark;
@@ -332,197 +332,106 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
   <footer class="foot"><ul id="foot"></ul></footer>
 </div>
 
-<script type="application/json" id="data">{"title":"LED を点ける（led.c）","tool":"picviewer 0.3.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"RB0（21 番ピン）を出力にして 1 を出す","fosc_hz":4000000,"source_name":"pic16f886/led.c","source":["// led.c  RB0 を出力にして 1 を出す（LED を点ける）","// PIC16F886  内部クロック 4 MHz  XC8","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","","void main(void)","{","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // AN0-AN4 をデジタルに","    ANSELH = 0b00000000;        // AN8-AN13 をデジタルに","","    TRISA = 0b11111111;         // まず全ピンを入力に","    TRISB = 0b11111111;","    TRISC = 0b11111111;","    PORTA = 0b00000000;         // 出力データを 0 に","    PORTB = 0b00000000;","    PORTC = 0b00000000;","","    TRISBbits.TRISB0 = 0;       // RB0 だけ出力に","    while (1) {","        PORTBbits.RB0 = 1;      // LED を点ける","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":null,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISA","mask":255,"bits":["TRISA0","TRISA1","TRISA2","TRISA3","TRISA4","TRISA5","TRISA6","TRISA7"]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTA","mask":255,"bits":["RA0","RA1","RA2","RA3","RA4","RA5","RA6","RA7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":13,"addr":"0x7de","cycles":9,"v":[96,31,63,255,255,255,0,0,0]},{"kind":"step","exec":13,"next":14,"addr":"0x7e2","cycles":13,"v":[96,31,63,255,255,255,0,0,0]},{"kind":"step","exec":14,"next":15,"addr":"0x7e5","cycles":16,"v":[96,0,63,255,255,255,0,0,0]},{"kind":"step","exec":15,"next":17,"addr":"0x7e6","cycles":17,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":17,"next":18,"addr":"0x7ea","cycles":21,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":18,"next":19,"addr":"0x7ec","cycles":23,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":19,"next":20,"addr":"0x7ee","cycles":25,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":20,"next":21,"addr":"0x7f1","cycles":28,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":21,"next":22,"addr":"0x7f2","cycles":29,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":22,"next":24,"addr":"0x7f3","cycles":30,"v":[96,0,0,255,255,255,0,0,0]},{"kind":"step","exec":24,"next":26,"addr":"0x7f6","cycles":33,"v":[96,0,0,255,254,255,0,0,0]},{"kind":"run","exec":26,"next":26,"addr":"0x7f6","cycles":37,"v":[96,0,0,255,254,255,0,1,0]},{"kind":"step","exec":26,"next":26,"addr":"0x7f6","cycles":41,"v":[96,0,0,255,254,255,0,1,0]},{"kind":"run","exec":26,"next":26,"addr":"0x7f6","cycles":45,"v":[96,0,0,255,254,255,0,1,0]}],"waves":[],"notes":{"13":"内部発振器を 4 MHz に設定する。リセット時と同じ値なので、レジスタは変わらない。","14":"PORTA 側のアナログ入力を無効にする。ピンの状態をデジタルで読めるようになる（出力の働きは変わらない）。","15":"PORTB 側のアナログ入力を無効にする。RB0 は AN12 と兼用のピンで、ここからデジタルで読めるようになる。","17":"PORTA の全ピンを入力に設定する。リセット時と同じ値。","18":"PORTB の全ピンを入力に設定する。RB0 の出力ドライバは止まったまま。","19":"PORTC の全ピンを入力に設定する。","20":"PORTA の出力データを 0 にする。入力に設定してあるのでピンには出ない。","21":"PORTB の出力データを 0 にする。RB0 を出力に切り替えたとき、最初に 0 が出るようになる。","22":"PORTC の出力データを 0 にする。","24":"RB0 だけを出力に切り替える。出力データは 0 なので Nch FET がオンになり、ピンは 0 V。","26":"RB0 の出力データを 1 にする。Nch FET がオフ、Pch FET がオンに切り替わり、ピンは電源の電圧になる。while (1) の中なので、この行をくり返す。"},"circuit":{"type":"led","r_ohm":330,"vf":2.0,"pin":"RB0","io_max_ma":25,"datasheet":"DS41291D"},"counters":[]},{"id":"pic16f1618","device":"PIC16F1618","summary":"RB0 が無いので RB4（13 番ピン）を出力にして 1 を出す","fosc_hz":4000000,"source_name":"pic16f1618/led.c","source":["// led.c  RB4 を出力にして 1 を出す（LED を点ける）","// PIC16F1618 には RB0 が無いので RB4 を使う。内部クロック 4 MHz  XC8","#include <xc.h>","","#pragma config FOSC = INTOSC, WDTE = OFF, PWRTE = OFF, MCLRE = ON","#pragma config CP = OFF, BOREN = ON, CLKOUTEN = OFF, LVP = OFF, PLLEN = OFF","","#define _XTAL_FREQ 4000000","","void main(void)","{","    OSCCON = 0b01101000;        // 内部発振器を 4 MHz に（IRCF = 1101）","    ANSELA = 0b00000000;        // PORTA をデジタルに","    ANSELB = 0b00000000;        // PORTB をデジタルに","    ANSELC = 0b00000000;        // PORTC をデジタルに","","    TRISA = 0b11111111;         // まず全ピンを入力に","    TRISB = 0b11111111;","    TRISC = 0b11111111;","    LATA  = 0b00000000;         // 出力ラッチを 0 に","    LATB  = 0b00000000;","    LATC  = 0b00000000;","","    TRISBbits.TRISB4 = 0;       // RB4 だけ出力に","    while (1) {","        LATBbits.LATB4 = 1;     // LED を点ける","    }","}"],"pack":{"name":"PIC12-16F1xxx_DFP","version":"1.9.258"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":null,"vdd":5.0,"pins":[["VDD"],["RA5","CLKIN"],["RA4","AN3","CLKOUT"],["RA3","VPP","nMCLR","MCLR"],["RC5","HIDC5"],["RC4","HIDC4"],["RC3","AN7","C1IN3-","C2IN3-"],["RC6","AN8"],["RC7","AN9"],["RB7"],["RB6"],["RB5","AN11"],["RB4","AN10"],["RC2","AN6","C1IN2-","C2IN2-"],["RC1","AN5","C1IN1-","C2IN1-"],["RC0","AN4","C2IN+"],["RA2","AN2","ZCDIN"],["RA1","AN1","C2IN0-","C1IN0-","VREF+","ICSPCLK"],["RA0","AN0","C1IN+","DACOUT","ICSPDAT"],["VSS"]],"regs":[{"name":"OSCCON","mask":251,"bits":["SCS0","SCS1",null,"IRCF0","IRCF1","IRCF2","IRCF3","SPLLEN"]},{"name":"ANSELA","mask":23,"bits":["ANSA0","ANSA1","ANSA2",null,"ANSA4",null,null,null]},{"name":"ANSELB","mask":48,"bits":[null,null,null,null,"ANSB4","ANSB5",null,null]},{"name":"ANSELC","mask":207,"bits":["ANSC0","ANSC1","ANSC2","ANSC3",null,null,"ANSC6","ANSC7"]},{"name":"TRISA","mask":63,"bits":["TRISA0","TRISA1","TRISA2","TRISA3","TRISA4","TRISA5",null,null]},{"name":"TRISB","mask":240,"bits":[null,null,null,null,"TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"LATA","mask":63,"bits":["LATA0","LATA1","LATA2","LATA3","LATA4","LATA5",null,null]},{"name":"LATB","mask":240,"bits":[null,null,null,null,"LATB4","LATB5","LATB6","LATB7"]},{"name":"LATC","mask":255,"bits":["LATC0","LATC1","LATC2","LATC3","LATC4","LATC5","LATC6","LATC7"]},{"name":"PORTB","mask":240,"bits":[null,null,null,null,"RB4","RB5","RB6","RB7"]}],"steps":[{"kind":"start","exec":null,"next":12,"addr":"0x7e4","cycles":10,"v":[56,23,48,207,63,240,255,0,0,0,0]},{"kind":"step","exec":12,"next":13,"addr":"0x7e7","cycles":13,"v":[104,23,48,207,63,240,255,0,0,0,0]},{"kind":"step","exec":13,"next":14,"addr":"0x7e9","cycles":15,"v":[104,0,48,207,63,240,255,0,0,0,0]},{"kind":"step","exec":14,"next":15,"addr":"0x7ea","cycles":16,"v":[104,0,0,207,63,240,255,0,0,0,0]},{"kind":"step","exec":15,"next":17,"addr":"0x7eb","cycles":17,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":17,"next":18,"addr":"0x7ee","cycles":20,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":18,"next":19,"addr":"0x7f0","cycles":22,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":19,"next":20,"addr":"0x7f2","cycles":24,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":20,"next":21,"addr":"0x7f4","cycles":26,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":21,"next":22,"addr":"0x7f5","cycles":27,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":22,"next":24,"addr":"0x7f6","cycles":28,"v":[104,0,0,0,63,240,255,0,0,0,0]},{"kind":"step","exec":24,"next":26,"addr":"0x7f8","cycles":30,"v":[104,0,0,0,63,224,255,0,0,0,0]},{"kind":"run","exec":26,"next":26,"addr":"0x7f8","cycles":34,"v":[104,0,0,0,63,224,255,0,16,0,16]},{"kind":"step","exec":26,"next":26,"addr":"0x7f8","cycles":38,"v":[104,0,0,0,63,224,255,0,16,0,16]},{"kind":"run","exec":26,"next":26,"addr":"0x7f8","cycles":42,"v":[104,0,0,0,63,224,255,0,16,0,16]}],"waves":[],"notes":{"12":"内部発振器を 4 MHz に設定する。リセット直後は 500 kHz で動いている。","13":"PORTA のアナログ入力を無効にする。ピンの状態をデジタルで読めるようになる（出力の働きは変わらない）。","14":"PORTB のアナログ入力を無効にする。RB4 は AN10 と兼用のピンで、ここからデジタルで読めるようになる。","15":"PORTC のアナログ入力を無効にする。","17":"PORTA の全ピンを入力に設定する。RA3 は入力専用のピンなので TRISA3 は 1 のまま。","18":"PORTB の全ピンを入力に設定する。RB4 の出力ドライバは止まったまま。","19":"PORTC の全ピンを入力に設定する。","20":"PORTA の出力ラッチを 0 にする。入力に設定してあるのでピンには出ない。","21":"PORTB の出力ラッチを 0 にする。RB4 を出力に切り替えたとき、最初に 0 が出るようになる。","22":"PORTC の出力ラッチを 0 にする。","24":"RB4 だけを出力に切り替える。出力ラッチは 0 なので Nch FET がオンになり、ピンは 0 V。","26":"RB4 の出力ラッチを 1 にする。Nch FET がオフ、Pch FET がオンに切り替わり、ピンは電源の電圧になる。while (1) の中なので、この行をくり返す。"},"circuit":{"type":"led","r_ohm":330,"vf":2.0,"pin":"RB4","io_max_ma":50,"datasheet":"DS40001769C"},"counters":[]}]}</script>
+<script type="application/json" id="data">{"title":"スイッチで進む 7 セグメント LED（counter.c、計画は picviewer init が作ったまま）","tool":"picviewer 0.3.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"PORTC に 7 セグメント LED、スイッチ SW（RB0、押すと 0）（init がソースから読み取った割り当て）","fosc_hz":4000000,"source_name":"counter.c","source":["// counter.c  スイッチを押している間、7 セグメント LED の数字を 0.5 秒ごとに 0 から 9 まで進める","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RB0 = スイッチ（押すと 0。プルアップ抵抗つきで、押すと GND につながる）","//       RC0-RC6 = 7 セグメント LED の a-g（カソード共通、1 で点灯）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","#define SW !PORTBbits.RB0           // 押すと 0 になるので ! で裏返す","","const unsigned char SHAPE[10] = {   // 0-9 の形（ビット 0 が a、ビット 6 が g）","    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F","};","","void main(void)","{","    unsigned char n = 0;","","    OSCCON = 0b01100000;        // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;        // アナログ入力を使わない","    ANSELH = 0b00000000;        // RB0 をデジタル入力に","    TRISB  = 0b00000001;        // RB0 はスイッチの入力","    TRISC  = 0b00000000;        // PORTC は全部 7 セグメント LED の出力","    PORTC  = SHAPE[n];          // 0 を出す","","    while (1) {","        while (!SW) {           // 押されるまで待つ","        }","        __delay_ms(500);","        n = (n == 9) ? 0 : n + 1;","        PORTC = SHAPE[n];       // 次の数字を出す","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSEL","mask":31,"bits":["ANS0","ANS1","ANS2","ANS3","ANS4",null,null,null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":20,"addr":"0x7a8","cycles":13,"v":[96,31,63,255,255,1,0],"inputs":{"RB0":"high"},"input_note":"スイッチは全部離してある","skipped_us":0},{"kind":"step","exec":20,"next":22,"addr":"0x7a9","cycles":14,"v":[96,31,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":22,"next":23,"addr":"0x7ad","cycles":18,"v":[96,31,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":23,"next":24,"addr":"0x7b0","cycles":21,"v":[96,0,63,255,255,1,0],"skipped_us":0},{"kind":"step","exec":24,"next":25,"addr":"0x7b1","cycles":22,"v":[96,0,0,255,255,1,0],"skipped_us":0},{"kind":"step","exec":25,"next":26,"addr":"0x7b5","cycles":26,"v":[96,0,0,1,255,1,0],"skipped_us":0},{"kind":"step","exec":26,"next":27,"addr":"0x7b6","cycles":27,"v":[96,0,0,1,0,1,0],"skipped_us":0},{"kind":"step","exec":27,"next":31,"addr":"0x7c0","cycles":46,"v":[96,0,0,1,0,1,63],"skipped_us":0},{"kind":"timeout","exec":null,"next":31,"addr":"0x7c1","cycles":5828957,"v":[96,0,0,1,0,1,63],"watch":"PORTC","skipped_us":0},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41368676,"v":[96,0,0,1,0,0,6],"watch":"PORTC","inputs":{"RB0":"low"},"input_note":"SW を押す","skipped_us":499500},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41369233,"v":[96,0,0,1,0,0,91],"watch":"PORTC","skipped_us":999000},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41369790,"v":[96,0,0,1,0,0,79],"watch":"PORTC","skipped_us":1498500},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41370347,"v":[96,0,0,1,0,0,102],"watch":"PORTC","skipped_us":1998000},{"kind":"write","exec":34,"next":34,"addr":"0x7f4","cycles":41370904,"v":[96,0,0,1,0,0,109],"watch":"PORTC","skipped_us":2497500},{"kind":"timeout","exec":null,"next":31,"addr":"0x7c1","cycles":47626102,"v":[96,0,0,1,0,1,109],"watch":"PORTC","inputs":{"RB0":"high"},"input_note":"SW を離す","skipped_us":2497500}],"waves":[],"notes":{"22":"内部発振器を 4 MHz に","23":"アナログ入力を使わない","24":"RB0 をデジタル入力に","25":"RB0 はスイッチの入力","26":"PORTC は全部 7 セグメント LED の出力","27":"0 を出す","30":"押されるまで待つ","34":"次の数字を出す"},"circuit":{"type":"seg7","port":"C","switches":[{"pin":"RB0","active":"low","label":"SW"}]},"counters":[]}]}</script>
 <script>
 window.PicViewer = { circuits: {}, util: {} };
-/* led: one port pin drives an LED through a resistor. Shows the pin's output FETs and the current path. */
+/* seg7: a one-digit 7-segment LED on a port. By default bit 0 is segment a ... bit 6 is g, bit 7 is dp,
+   common cathode (a 1 lights the segment). */
 (() => {
   'use strict';
 
-  const SVG = `
-<svg id="cir" viewBox="0 0 740 410" role="img" aria-label="PIC の出力ピンと LED の回路">
-  <defs><path id="ah" d="M-6 -6.5 L7 0 L-6 6.5 Z"/></defs>
-  <g class="wire">
-    <path d="M60 197 V44 H690"/>
-    <path d="M60 211 V366 H690"/>
-    <path d="M372 44 V96"/>
-    <path d="M372 314 V366"/>
-    <path d="M480 205 H530"/>
-    <path d="M600 205 H660"/>
-    <path class="w-source" d="M660 205 V262 M660 292 V366"/>
-    <path class="w-sink" d="M660 44 V104 M660 134 V205"/>
-  </g>
-  <rect class="body" x="184" y="96" width="296" height="218" rx="6"/>
-  <g class="wire">
-    <path d="M372 96 V130 M372 164 V246 M372 280 V314 M372 205 H480"/>
-    <path class="ctl" d="M346 190 H355 V147 H364 M346 220 H355 V263 H364"/>
-  </g>
-  <g id="gCur"></g>
-  <line class="plate" x1="42" y1="197" x2="78" y2="197"/>
-  <line class="plate thick" x1="50" y1="211" x2="70" y2="211"/>
-  <text class="big" x="22" y="196">+</text>
-  <text class="big" x="25" y="228">-</text>
-  <text x="90" y="200">電源</text>
-  <text x="90" y="222" id="lSupply">5 V</text>
-  <text class="dim" x="150" y="32" id="lRailTop">+5 V の線</text>
-  <text class="dim" x="150" y="391">GND (0 V) の線</text>
-  <text class="big" x="196" y="121" id="lDev" font-weight="700">PIC</text>
-  <rect class="box" x="194" y="164" width="152" height="82" rx="5"/>
-  <text class="dim small" x="203" y="183">方向と出力データ</text>
-  <text x="203" y="208" id="lTris">TRIS</text>
-  <text x="203" y="233" id="lData">DATA</text>
-  <g class="sw" id="swP">
-    <line class="gate" x1="365" y1="137" x2="365" y2="157"/>
-    <line class="lever" x1="372" y1="164" x2="372" y2="130" style="transform-origin:372px 164px"/>
-    <circle class="dot" cx="372" cy="130" r="3"/><circle class="dot" cx="372" cy="164" r="3"/>
-    <text x="402" y="145">Pch FET</text>
-    <text x="402" y="166" id="lPch">オフ</text>
-  </g>
-  <g class="sw" id="swN">
-    <line class="gate" x1="365" y1="253" x2="365" y2="273"/>
-    <line class="lever" x1="372" y1="280" x2="372" y2="246" style="transform-origin:372px 280px"/>
-    <circle class="dot" cx="372" cy="246" r="3"/><circle class="dot" cx="372" cy="280" r="3"/>
-    <text x="402" y="261">Nch FET</text>
-    <text x="402" y="282" id="lNch">オフ</text>
-  </g>
-  <circle class="dot" cx="372" cy="205" r="3"/>
-  <circle class="dot" cx="372" cy="96" r="4.5"/>
-  <circle class="dot" cx="372" cy="314" r="4.5"/>
-  <circle class="dot" cx="480" cy="205" r="4.5"/>
-  <text x="383" y="80" id="lVdd">VDD</text>
-  <text x="383" y="347" id="lVss">VSS</text>
-  <text x="488" y="239" id="lPin">PIN</text>
-  <text class="dim" x="488" y="260" id="lVolt"></text>
-  <rect class="comp" x="530" y="194" width="70" height="22" rx="2"/>
-  <text x="565" y="181" text-anchor="middle" id="lR">抵抗</text>
-  <g class="w-source">
-    <circle class="halo" cx="660" cy="277" r="27"/>
-    <path class="led-body" d="M644 262 H676 L660 290 Z"/>
-    <line class="led-bar" x1="644" y1="292" x2="676" y2="292"/>
-    <text class="big" x="688" y="272">LED</text>
-    <text class="dim ledState" x="688" y="292">消灯</text>
-  </g>
-  <g class="w-sink">
-    <circle class="halo" cx="660" cy="119" r="27"/>
-    <path class="led-body" d="M644 104 H676 L660 132 Z"/>
-    <line class="led-bar" x1="644" y1="134" x2="676" y2="134"/>
-    <text class="big" x="688" y="114">LED</text>
-    <text class="dim ledState" x="688" y="134">消灯</text>
-  </g>
-</svg>`;
+  const NAMES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'];
+  // the usual a..g shapes of hexadecimal digits (bit 0 = a)
+  const DIGITS = { 0x3f: '0', 0x06: '1', 0x5b: '2', 0x4f: '3', 0x66: '4', 0x6d: '5', 0x7d: '6', 0x07: '7', 0x27: '7',
+    0x7f: '8', 0x6f: '9', 0x67: '9', 0x77: 'A', 0x7c: 'b', 0x39: 'C', 0x58: 'c', 0x5e: 'd', 0x79: 'E', 0x71: 'F', 0x00: '（消灯）' };
 
-  // current paths in the drawing's coordinates, with arrows placed between the parts
-  const PATHS = {
-    source: {
-      pts: [[60, 197], [60, 44], [372, 44], [372, 205], [660, 205], [660, 366], [60, 366], [60, 211]],
-      arrows: [[60, 120, -90], [215, 44, 0], [372, 72, 90], [430, 205, 0], [506, 205, 0], [632, 205, 0],
-        [660, 332, 90], [520, 366, 180], [215, 366, 180], [60, 290, -90]],
-    },
-    sink: {
-      pts: [[60, 197], [60, 44], [660, 44], [660, 205], [372, 205], [372, 366], [60, 366], [60, 211]],
-      arrows: [[60, 120, -90], [215, 44, 0], [520, 44, 0], [660, 76, 90], [660, 172, 90], [630, 205, 180],
-        [504, 205, 180], [428, 205, 180], [372, 342, 90], [215, 366, 180], [60, 290, -90]],
-    },
+  // segment outlines in a 120 x 220 box at (70, 40)
+  const X = 70, Y = 40, W = 120, H = 220, T = 18;
+  const hseg = (y) => `M${X + 12} ${y} L${X + 22} ${y - T / 2} H${X + W - 22} L${X + W - 12} ${y} L${X + W - 22} ${y + T / 2} H${X + 22} Z`;
+  const vseg = (x, y0, y1) => `M${x} ${y0 + 12} L${x + T / 2} ${y0 + 22} V${y1 - 22} L${x} ${y1 - 12} L${x - T / 2} ${y1 - 22} V${y0 + 22} Z`;
+  const SHAPES = {
+    a: hseg(Y), g: hseg(Y + H / 2), d: hseg(Y + H),
+    f: vseg(X, Y, Y + H / 2), b: vseg(X + W, Y, Y + H / 2), e: vseg(X, Y + H / 2, Y + H), c: vseg(X + W, Y + H / 2, Y + H),
   };
 
-  const values = (t, cfg) => ({ vdd: t.vdd || 5, r: cfg.r_ohm || 330, vf: cfg.vf === undefined ? 2.0 : cfg.vf });
-  const volts = (v, U) => U.num(v, Number.isInteger(v) ? 0 : 1);
+  function settings(cfg) {
+    const order = Array.isArray(cfg.segments) && cfg.segments.length === 8 ? cfg.segments.map(String) : NAMES;
+    return { port: String(cfg.port || 'C').toUpperCase(), order, anode: cfg.common === 'anode' };
+  }
 
-  window.PicViewer.circuits.led = {
-    title: '回路と電流',
-    options: [{
-      key: 'wire', legend: 'LED のつなぎ方（仮定）', default: 'source',
-      choices: [{ value: 'source', label: '1 で点灯（ピンと GND の間）' }, { value: 'sink', label: '0 で点灯（電源とピンの間）' }],
-    }],
+  window.PicViewer.circuits.seg7 = {
+    title: '7 セグメント LED',
+    options: [],
     setup(ctx) {
       const { t, cfg, box, U } = ctx;
-      const pb = U.portBit(cfg.pin);
-      if (!pb) {
-        box.append(U.el('p', 'hint', 'circuit.pin に LED をつなぐピンの名前（例 RB0）を書く。'));
-        return {};
+      const c = settings(cfg);
+      const svg = U.svgEl('svg', { id: 'cir', viewBox: '0 0 560 320', role: 'img', 'aria-label': '7 セグメント LED' });
+      const add = (tag, attrs, text) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; svg.append(e); return e; };
+      add('rect', { class: 'body', x: 40, y: 14, width: 190, height: 290, rx: 14 });
+      Object.entries(SHAPES).forEach(([name, d]) => add('path', { class: 'seg', 'data-seg': name, d }));
+      add('circle', { class: 'seg', 'data-seg': 'dp', cx: X + W + 26, cy: Y + H + 4, r: 10 });
+      Object.entries({ a: [X + W / 2, Y - 14], b: [X + W + 18, Y + 60], c: [X + W + 18, Y + 170], d: [X + W / 2, Y + H + 32],
+        e: [X - 26, Y + 170], f: [X - 26, Y + 60], g: [X + W / 2, Y + H / 2 - 14] }).forEach(([n, [x, y]]) =>
+        add('text', { class: 'dim small', x, y, 'text-anchor': 'middle' }, n));
+      // the bit table: pin, pin number, segment, value
+      add('text', { class: 'small dim', x: 270, y: 38 }, `${t.device}  PORT${c.port}`);
+      for (let b = 0; b < 8; b++) {
+        const y = 66 + b * 30;
+        const pin = `R${c.port}${b}`;
+        add('text', { class: 'small', x: 270, y }, pin);
+        add('text', { class: 'small dim', x: 320, y }, `${U.pinsWith(t, pin).join('、')} 番`);
+        add('text', { class: 'small', x: 390, y }, c.order[b]);
+        add('text', { class: 'small', x: 440, y, 'data-bitval': String(b) }, '0');
       }
-      box.innerHTML = SVG;
-      const svg = box.querySelector('#cir');
-      const { vdd, r, vf } = values(t, cfg);
-      const set = (id, s) => { svg.querySelector('#' + id).textContent = s; };
-      set('lDev', t.device);
-      set('lVdd', `VDD  ${U.pinsWith(t, 'VDD').join('、')} 番ピン`);
-      set('lVss', `VSS  ${U.pinsWith(t, 'VSS').join('、')} 番ピン`);
-      set('lPin', `${cfg.pin}  ${U.pinsWith(t, cfg.pin).join('、')} 番ピン`);
-      set('lSupply', `${volts(vdd, U)} V`);
-      set('lRailTop', `+${volts(vdd, U)} V の線`);
-      set('lR', `抵抗 ${r} Ω`);
-      const mA = Math.round(((vdd - vf) / r) * 1000);
-      const limit = cfg.io_max_ma ? `I/O ピン 1 本の絶対最大定格は ${cfg.io_max_ma} mA${cfg.datasheet ? `（${cfg.datasheet}）` : ''}。` : '';
+      box.append(svg);
       return {
-        sub: 'LED のまわりは仮定の回路',
-        assume: `電流の見積もり: (電源 ${volts(vdd, U)} V - LED の順方向電圧 ${U.num(vf)} V) / 抵抗 ${r} Ω = 約 ${mA} mA（FET のオン抵抗は無視）。${limit}`,
-        regHint: `TRIS${pb.port} は 1 が入力、0 が出力。太い枠のビットが LED をつなぐ ${cfg.pin}。`,
-        marks: ['TRIS', 'PORT', 'LAT'].map((p) => ({ reg: p + pb.port, bit: pb.bit })),
-        foot: [`LED と抵抗のつなぎ方、抵抗 ${r} Ω、順方向電圧 ${U.num(vf)} V は仮定。実際の基板に合わせて circuit の値を直す。電源電圧はデバイス定義ファイルの公称値。`],
+        sub: `共通${c.anode ? 'アノード（0 で点灯）' : 'カソード（1 で点灯）'}、PORT${c.port} のビット 0 から ${c.order.join('、')}`,
+        assume: '区画とビットの対応、共通端子の向きは仮定。実際の基板に合わせて circuit の値を直す。',
+        regHint: `太い枠のビットが 7 セグにつないだ PORT${c.port}。`,
+        marks: Array.from({ length: 8 }, (_, b) => [{ reg: 'PORT' + c.port, bit: b }, { reg: 'LAT' + c.port, bit: b }]).flat(),
+        foot: ['7 セグの区画は、ポートのビットから決めて描いたもの（表示器はシミュレータに無い）。'],
       };
     },
     update(ctx) {
-      const { t, cfg, box, R, U, opts } = ctx;
+      const { cfg, box, R, U, inputs } = ctx;
+      const c = settings(cfg);
       const svg = box.querySelector('#cir');
-      const pb = U.portBit(cfg.pin);
-      if (!svg || !pb) return {};
-      const trisReg = R['TRIS' + pb.port];
-      const latch = U.latchOf(R, pb.port);
-      if (trisReg === undefined || latch === undefined) {
-        return { text: `TRIS${pb.port} と PORT${pb.port}（または LAT${pb.port}）を registers に入れると、ピンの状態が描ける。` };
+      const latch = U.latchOf(R, c.port);
+      const tris = R['TRIS' + c.port];
+      if (!svg || latch === undefined) return { text: `PORT${c.port}（または LAT${c.port}）を registers に入れると 7 セグが描ける。` };
+      const lit = [];
+      let shape = 0;
+      for (let b = 0; b < 8; b++) {
+        const level = (latch >> b) & 1;
+        const out = tris === undefined || ((tris >> b) & 1) === 0;
+        const on = out && level === (c.anode ? 0 : 1);
+        const name = c.order[b];
+        svg.querySelectorAll(`[data-seg="${name}"]`).forEach((s) => s.classList.toggle('on', on));
+        const cell = svg.querySelector(`[data-bitval="${b}"]`);
+        cell.textContent = String(level);
+        cell.setAttribute('class', on ? 'small em' : 'small');
+        if (on) {
+          lit.push(name);
+          const k = NAMES.indexOf(name);
+          if (k >= 0 && k < 7) shape |= 1 << k;
+        }
       }
-      const { vdd, r, vf } = values(t, cfg);
-      const tris = (trisReg >> pb.bit) & 1;
-      const data = (latch >> pb.bit) & 1;
-      const drive = tris ? 'hiz' : (data ? 'high' : 'low');
-      const wire = opts.wire;
-      const flow = wire === 'source' && drive === 'high' ? 'source' : wire === 'sink' && drive === 'low' ? 'sink' : 'none';
-      const lit = flow !== 'none';
-      const mA = Math.round(((vdd - vf) / r) * 1000);
-      const volt = drive === 'high' ? `約 ${volts(vdd, U)} V` : drive === 'low' ? '約 0 V' : 'ハイインピーダンス';
-
-      svg.dataset.wire = wire;
-      svg.dataset.lit = lit ? '1' : '0';
-      const g = svg.querySelector('#gCur');
-      g.replaceChildren();
-      if (lit) U.drawPath(g, PATHS[flow].pts, '', { arrows: PATHS[flow].arrows });
-      const sw = (id, label, on) => {
-        svg.querySelector('#' + id).classList.toggle('on', on);
-        const tx = svg.querySelector('#' + label);
-        tx.textContent = on ? 'オン' : 'オフ';
-        tx.setAttribute('class', on ? 'em' : 'dim');
-      };
-      sw('swP', 'lPch', drive === 'high');
-      sw('swN', 'lNch', drive === 'low');
-      const latchName = R['LAT' + pb.port] !== undefined ? `LAT${pb.port}${pb.bit}` : cfg.pin;
-      const word = U.svgEl('tspan', { dx: '8', class: 'dim' });
-      word.textContent = tris ? '入力' : '出力';
-      svg.querySelector('#lTris').replaceChildren(`TRIS${pb.port}${pb.bit} = ${tris}`, word);
-      svg.querySelector('#lData').textContent = `${latchName} = ${data}`;
-      svg.querySelector('#lVolt').textContent = volt;
-      svg.querySelectorAll('.ledState').forEach((tx) => {
-        tx.textContent = lit ? '点灯' : '消灯';
-        tx.setAttribute('class', lit ? 'em ledState' : 'dim ledState');
-      });
-
-      const pin = cfg.pin;
-      const text = {
-        'source/high': `電流が流れる。電源のプラス側から VDD、Pch FET、${pin}、抵抗、LED、GND の順に通って、電源のマイナス側へ戻る。`,
-        'source/low': `電流は流れない。Nch FET がオンで ${pin} は約 0 V になり、LED の両端に電圧がかからない。`,
-        'sink/low': `電流が流れる。電源のプラス側から LED、抵抗、${pin}、Nch FET、VSS、GND の順に通って、電源のマイナス側へ戻る。`,
-        'sink/high': `電流は流れない。Pch FET がオンで ${pin} は約 ${volts(vdd, U)} V になり、LED の両端が同じ電圧になる。`,
-      }[`${wire}/${drive}`] || `電流は流れない。FET は両方オフで、${pin} は PIC の中でどこにもつながっていない。`;
+      const digit = DIGITS[shape];
+      const status = [
+        { label: `PORT${c.port}`, value: `${U.hex(latch)}`, tone: lit.length ? 'on' : '' },
+        { label: '点いている区画', value: lit.join(' ') || 'なし', tone: lit.length ? 'on' : '' },
+        { label: '読める形', value: digit || '数字の形ではない' },
+      ];
+      // switches are not drawn here; their state is read from PORT like on the LED view
+      const sw = U.switchStates(cfg, R, inputs).filter((s) => s.down !== null);
+      const pressed = sw.filter((s) => s.down).map((s) => s.label);
+      if (sw.length) status.push({ label: '押しているスイッチ', value: pressed.join('、') || 'なし', tone: pressed.length ? 'on' : '' });
       return {
-        status: [
-          { label: 'Pch FET', value: drive === 'high' ? 'オン' : 'オフ', tone: drive === 'high' ? 'on' : '' },
-          { label: 'Nch FET', value: drive === 'low' ? 'オン' : 'オフ', tone: drive === 'low' ? 'on' : '' },
-          { label: `${pin} の電圧`, value: volt },
-          { label: 'LED', value: lit ? '点灯' : '消灯', tone: lit ? 'on' : '' },
-          { label: 'LED の電流', value: lit ? `約 ${mA} mA` : '0 mA', tone: lit ? 'on' : '' },
-        ],
-        text,
-        probe: { drive, flow, lit },
+        status,
+        text: (lit.length ? `点いている区画: ${lit.join('、')}。${digit && digit !== '（消灯）' ? `数字の ${digit} の形。` : ''}` : '全部消えている。')
+          + (sw.length ? (pressed.length ? `押しているスイッチ: ${pressed.join('、')}。` : 'スイッチはどれも離してある。') : '')
+          + U.mismatchText(sw),
+        probe: { lit: lit.join(''), digit: digit || null, pressed: sw.length ? pressed : null },
       };
     },
   };
