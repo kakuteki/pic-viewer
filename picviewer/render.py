@@ -38,7 +38,8 @@ def page_data(project, bundles):
         targets.append({
             "id": t.id, "device": b["device"], "summary": t.summary, "fosc_hz": t.fosc_hz,
             "source_name": b["source_name"], "source": b["source"], "pack": b["pack"],
-            "tools": b["tools"], "traced": b["traced"], "vdd": b["vdd"], "pins": b["pins"],
+            "tools": b["tools"], "traced": b["traced"], "fast_forward": b.get("fast_forward"),
+            "vdd": b["vdd"], "pins": b["pins"],
             "regs": b["regs"], "steps": b["steps"], "waves": b.get("waves", []),
             "notes": t.notes, "circuit": t.circuit, "counters": t.counters,
         })

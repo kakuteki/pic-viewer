@@ -78,23 +78,49 @@ def probe_errors(text, source_name, device):
     return errors
 
 
-def trace_commands(device, elf, source_name, plan, registers, wait_ms):
-    """Commands for the whole plan, and the kind of each stop ('start', 'step' or 'run')."""
-    prints = [f"Print {r}" for r in registers] + ["Stopwatch"]
-    first = plan[0]["run_to"]
-    cmds = header(device, elf) + [f"Break {source_name}:{first}", "Run", f"Wait {wait_ms}", *prints]
-    kinds = ["start"]
-    breakpoint_no = 0          # mdb numbers breakpoints 0, 1, 2, ... and does not reuse a number
-    for action in plan[1:]:
-        if "step" in action:
+def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables=()):
+    """Commands for the whole plan, and the kind of each stop ('start', 'step', 'run' or 'write').
+
+    Breakpoints and watchpoints share one numbering (0, 1, 2, ...) and a number is never reused,
+    so the ones in force can be deleted by number before the next run_to or until_write.
+    """
+    prints = [f"Print {r}" for r in registers] + [f"Print {v}" for v in variables] + ["Stopwatch"]
+    cmds = header(device, elf)
+    kinds, active = [], []
+    next_no, started = 0, False
+
+    def clear():
+        cmds.extend(f"Delete {n}" for n in active)
+        active.clear()
+
+    def add(command):
+        nonlocal next_no
+        cmds.append(command)
+        active.append(next_no)
+        next_no += 1
+
+    for action in plan:
+        if "set" in action:
+            cmds.extend(f"write pin {pin} {level}" for pin, level in action["set"].items())
+        elif "step" in action:
             for _ in range(action["step"]):
                 cmds += ["Step", *prints]
                 kinds.append("step")
-        else:
-            cmds += [f"Delete {breakpoint_no}", f"Break {source_name}:{action['run_to']}",
-                     "Continue", f"Wait {wait_ms}", *prints]
-            breakpoint_no += 1
-            kinds.append("run")
+        elif "run_to" in action:
+            clear()
+            add(f"Break {source_name}:{action['run_to']}")
+            cmds += ["Continue" if started else "Run", f"Wait {wait_ms}", *prints]
+            kinds.append("run" if started else "start")
+            started = True
+        elif "until_write" in action:
+            clear()
+            add(f"Watch {action['until_write']} W")
+            if action.get("until"):
+                add(f"Break {source_name}:{action['until']}")
+            wait = action.get("wait_ms", wait_ms)
+            for _ in range(action["count"]):
+                cmds += ["Continue", f"Wait {wait}", *prints]
+                kinds.append("write")
     cmds.append("Quit")
     return cmds, kinds
 
@@ -154,7 +180,7 @@ def absolute_cycles(records, kinds):
     for rec, kind in zip(records, kinds):
         if kind == "start":
             base = 0
-        elif kind == "run":
+        elif kind in ("run", "write"):
             base = prev
         now = base + rec["reading"]
         if now < prev:

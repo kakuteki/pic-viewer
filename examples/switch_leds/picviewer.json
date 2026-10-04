@@ -1,0 +1,40 @@
+{
+  "title": "スイッチで LED の模様を流す（leds.c）",
+  "output": "switch_leds_viewer.html",
+  "fast_forward": 1000,
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/leds.c",
+      "fosc_hz": 4000000,
+      "summary": "RB0 のスイッチを押すと、PORTC の LED 8 個の模様を 0.5 秒ごとに変える",
+      "registers": ["OSCCON", "ANSEL", "ANSELH", "TRISB", "TRISC", "PORTB", "PORTC"],
+      "trace": [
+        { "run_to": 18 },
+        { "step": 6 },
+        { "set": { "RB0": 1 }, "note": "スイッチを押す" },
+        { "until_write": "PORTC", "count": 12 }
+      ],
+      "circuit": {
+        "type": "leds",
+        "port": "C",
+        "r_ohm": 330,
+        "switch": { "pin": "RB0", "active": "high" }
+      },
+      "notes": {
+        "18": "内部発振器を 4 MHz に設定する（リセット時と同じ値）。",
+        "19": "PORTA 側のアナログ入力を無効にする。",
+        "20": "PORTB 側のアナログ入力を無効にする。RB0 はここからデジタルで読める（スイッチ用）。",
+        "21": "PORTB を全部入力にする。RB0 にスイッチをつないである。",
+        "22": "PORTC を全部出力にする。8 個の LED をつないである。",
+        "23": "LED を全部消す。次はスイッチが押されるのを待つループ。",
+        "25": "スイッチが押されるまで、ここをくり返して待つ。RB0 は 0（押していない）。",
+        "26": "スイッチが押されるまで、ここをくり返して待つ。RB0 は 0（押していない）。",
+        "30": "表の模様（0x0F、0xF0、0xAA、0x55）を順に PORTC に出す。このあと 0.5 秒待つ。",
+        "33": "LED を 1 個（RC0）だけ点ける。",
+        "36": "PORTC を 1 ビット左へずらして、点いている LED を 1 つ左へ送る。このあと 0.5 秒待つ。"
+      }
+    }
+  ]
+}

@@ -157,8 +157,25 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 #cir .led-body { fill: var(--led-off); stroke: var(--fg); stroke-width: 1.5; stroke-linejoin: round; }
 #cir .led-bar { stroke: var(--fg); stroke-width: 3; }
 #cir .halo { fill: var(--led); opacity: 0; }
-#cir[data-lit="1"] .led-body { fill: var(--led); }
-#cir[data-lit="1"] .halo { opacity: .3; }
+#cir[data-lit="1"] .led-body, #cir .ledg.lit .led-body { fill: var(--led); }
+#cir[data-lit="1"] .halo, #cir .ledg.lit .halo { opacity: .3; }
+
+/* character LCD */
+.lcd { display: inline-block; background: #7fa650; border-radius: 10px; padding: 14px 16px; box-shadow: inset 0 0 0 3px rgba(0, 0, 0, .25); max-width: 100%; overflow-x: auto; }
+.lcd.off { background: #5e6b55; }
+.lcd .row { display: flex; gap: 3px; }
+.lcd .row + .row { margin-top: 4px; }
+.lcd .ch {
+  flex: 0 0 auto; width: 1.3em; height: 1.85em; display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, .1); color: #142208; font-family: var(--mono); font-size: clamp(15px, 1.4vw, 22px); font-weight: 700; border-radius: 2px;
+}
+.lcd .ch.cur { box-shadow: inset 0 -3px 0 #142208; }
+.bus { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.bus .line { display: grid; justify-items: center; gap: 2px; background: var(--inset); border-radius: 8px; padding: 4px 8px; }
+.bus .line b { font-size: 12px; }
+.bus .line small { font-size: 11px; color: var(--dim); }
+.lcdlog { margin: 10px 0 0; padding-left: 20px; font-size: 13px; color: var(--dim); }
+.lcdlog li.now { color: var(--accent-ink); font-weight: 700; }
 #cir[data-wire="source"] .w-sink, #cir[data-wire="sink"] .w-source { display: none; }
 #cir .motor { fill: var(--panel); stroke: var(--fg); stroke-width: 2.5; }
 #cir .motor.on { fill: var(--accent-soft); }

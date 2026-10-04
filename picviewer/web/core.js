@@ -168,6 +168,7 @@
       `レジスタの値と実行の順番は、MPLAB X ${t.tools.mplabx || ''} のシミュレータ（mdb）で ${t.source_name} を実行して読んだ値（コンパイラ XC8 ${t.tools.xc8 || ''}、記録 ${t.traced}）。`,
       `ピン番号とビットの有無は Microchip のデバイス定義ファイル（${t.pack.name} ${t.pack.version}）から。`,
       hz ? `時間は命令サイクル数を 1 秒あたり ${hz / 1e6} M 命令（Fosc ${t.fosc_hz / 1e6} MHz の 4 分の 1）で割った値。` : '',
+      t.fast_forward ? `早送り: __delay_ms の待ちを 1/${t.fast_forward} に縮めた版をシミュレータで動かし、縮めた時間はプログラムの中で数えて足している。命令サイクル数は縮めた後の値。` : '',
       ...extra,
       `作成: ${D.tool}`,
     ].filter(Boolean);
@@ -202,27 +203,44 @@
     update();
   }
 
+  // seconds since reset; with fast_forward, the waits cut from __delay_ms are added back
+  const secondsOf = (t, st) => {
+    const hz = instrHz(t);
+    return hz ? st.cycles / hz + (st.skipped_us || 0) / 1e6 : null;
+  };
+  const levelText = (v) => (v === 'high' ? '1' : v === 'low' ? '0' : v);
+
   // ---------------- per-step painting
   function explain(t, st, prev) {
     const regsChanged = [];
     if (prev) t.regs.forEach((r, i) => { if (!isCounter(t, r.name) && prev.v[i] !== st.v[i]) regsChanged.push(`${r.name} ${hex(prev.v[i])} から ${hex(st.v[i])}`); });
+    const inputs = st.inputs
+      ? `入力を変えた: ${Object.entries(st.inputs).map(([p, v]) => `${p} = ${levelText(v)}`).join('、')}${st.input_note ? `（${st.input_note}）` : ''}。`
+      : '';
     if (st.exec === null) {
       $('exNo').textContent = '';
       $('exCode').textContent = 'まだ無い';
-      $('exNote').textContent = 'リセット直後。main の最初の行はまだ実行していない。';
+      $('exNote').textContent = inputs + 'リセット直後。main の最初の行はまだ実行していない。';
     } else {
       $('exNo').textContent = `${st.exec} 行目`;
       $('exCode').textContent = codeOf(t.source[st.exec - 1] || '');
       const repeat = prev && prev.exec === st.exec && regsChanged.length === 0;
       const bits = changedBits(t, st, prev);
       const auto = bits.length ? '変わったビット: ' + bits.map((b) => `${b.name} が ${b.from} から ${b.to}`).join('、') : 'レジスタの変化は無い。';
-      $('exNote').textContent = repeat ? '同じ行をもう一度実行した（ループの中）。レジスタは変わらない。' : (t.notes[String(st.exec)] || auto);
+      let note;
+      if (st.kind === 'end') note = t.notes[String(st.exec)] || `${st.exec} 行目に来たので、${st.watch} への書き込みを追うのを終える。`;
+      else if (repeat) note = '同じ行をもう一度実行した（ループの中）。レジスタは変わらない。';
+      else note = t.notes[String(st.exec)] || auto;
+      if (st.kind === 'write') note = `${st.watch} に書いた所で止めた。` + note;
+      $('exNote').textContent = inputs + note;
     }
     $('exDelta').textContent = prev ? (regsChanged.length ? `変わったレジスタ: ${regsChanged.join('、')}` : '変わったレジスタ: なし') : '';
     $('exDelta').className = regsChanged.length ? 'delta' : '';
-    const hz = instrHz(t);
-    $('exMeta').textContent = `次に実行する行: ${st.next} 行目（アドレス ${st.addr}）　リセットからの命令サイクル数: ${st.cycles}`
-      + (hz ? `（${fmtTime(st.cycles / hz)}）` : '');
+    const sec = secondsOf(t, st);
+    const time = sec === null ? '' : t.fast_forward
+      ? `（早送りで縮めた待ちを足すと ${fmtTime(sec)}）`
+      : `（${fmtTime(sec)}）`;
+    $('exMeta').textContent = `次に実行する行: ${st.next} 行目（アドレス ${st.addr}）　リセットからの命令サイクル数: ${st.cycles}${time}`;
   }
 
   function paintSource(st) {
@@ -313,7 +331,8 @@
     explain(t, st, prev);
     paintSource(st);
     paintRegs(t, st, prev);
-    const res = circuitOf(t).update({ ...ctxBase(t), st, prev, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null, fmtTime, instrHz: instrHz(t) }) || {};
+    const res = circuitOf(t).update({ ...ctxBase(t), st, prev, k: S.step, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null,
+      regsAt: (step) => regsAt(t, step), fmtTime, instrHz: instrHz(t), seconds: secondsOf(t, st) }) || {};
     paintStatus(res.status || []);
     $('cirText').textContent = res.text || '';
     S.probe = res.probe || null;
@@ -372,7 +391,7 @@
   PV.state = () => {
     const t = tgt();
     const st = t.steps[S.step];
-    return { target: t.id, step: S.step, last: last(), exec: st.exec, next: st.next,
+    return { target: t.id, step: S.step, last: last(), exec: st.exec, next: st.next, kind: st.kind,
       opts: { ...S.opts }, playing: Boolean(S.timer), probe: S.probe };
   };
 

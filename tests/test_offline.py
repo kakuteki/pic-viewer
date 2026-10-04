@@ -11,9 +11,11 @@ from unittest import mock
 from picviewer import __version__
 from picviewer.bundle import dumps, expand_plan, make_steps, register_info
 from picviewer.cli import build_parser
+from picviewer.compiler import FAST_VAR, fast_define, fast_source
+from picviewer.linetab import line_at, read_line_table, writer_address
 from picviewer.mdb import MdbError, absolute_cycles, parse_records, probe_errors, trace_commands
 from picviewer.picdef import PicDef
-from picviewer.project import ProjectError, load, parse_plan
+from picviewer.project import ProjectError, load, parse_plan, pin_level
 from picviewer.render import load_bundles, render_html
 from picviewer.server import listing_html, make_server
 from picviewer.toolchain import ENV_XC8, find_device_file, find_xc8, version_key
@@ -21,6 +23,78 @@ from picviewer.wave import parse_samples, summarize
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "examples"
+EXAMPLE_NAMES = sorted(p.name for p in EXAMPLES.iterdir() if (p / "picviewer.json").is_file())
+
+# part of the map file XC8 writes (proto.cmf): address, psect, class, >line:file
+CMF = """\
+%CMF
+%LINETAB
+$startup.o
+0 end_init CODE >86:C:\\work\\build\\startup.s
+$leds.o
+7F8 cinit CODE >431:C:\\work\\build\\leds.s
+7C0 maintext CODE >13:C:\\work\\build\\sim\\leds.c
+7C3 maintext CODE >14:C:\\work\\build\\sim\\leds.c
+7C3 maintext CODE >15:C:\\work\\build\\sim\\leds.c
+7C7 maintext CODE >16:C:\\work\\build\\sim\\leds.c
+7C7 maintext CODE >17:C:\\work\\build\\sim\\leds.c
+7CB maintext CODE >18:C:\\work\\build\\sim\\leds.c
+7DE maintext CODE >19:C:\\work\\build\\sim\\leds.c
+7E1 maintext CODE >20:C:\\work\\build\\sim\\leds.c
+# %SYMTAB Section
+%SYMTAB
+_main 7B3 0 CODE 0 maintext dist/leds.o
+"""
+
+# Watch PORTC W, then two writes: mdb reports the line after the write (the writer is one word back)
+WRITE_LOG = """\
+Watch PORTC W
+Watchpoint 1.
+Continue
+Running
+Wait 600000
+Single breakpoint: @0x7
+Simulator halted
+Stop at
+\taddress:0x7cb
+\tsource line:18
+Print PORTC
+PORTC=
+15
+Print picviewer_skipped_us
+picviewer_skipped_us=
+0
+Stopwatch
+Stopwatch cycle count = 8 (8 \u00b5s)
+Continue
+Running
+Wait 600000
+Stop at
+\taddress:0x7e1
+\tsource line:20
+Print PORTC
+PORTC=
+143
+Print picviewer_skipped_us
+picviewer_skipped_us=
+499500
+Stopwatch
+Stopwatch cycle count = 517 (517 \u00b5s)
+Continue
+Running
+Wait 600000
+Stop at
+\taddress:0x7e1
+\tsource line:20
+Print PORTC
+PORTC=
+143
+Print picviewer_skipped_us
+picviewer_skipped_us=
+999000
+Stopwatch
+Stopwatch cycle count = 520 (520 \u00b5s)
+"""
 
 
 def _fields(names):
@@ -215,6 +289,19 @@ class ProjectTest(TempDirTest):
         self.assertEqual(motor.targets[0].counters, ["TMR2"])
         self.assertEqual(motor.targets[1].counters, ["T2TMR"])
         self.assertEqual(motor.targets[1].trace[2], {"run_to": 50, "show": 49})
+        leds = load(EXAMPLES / "switch_leds").targets[0]
+        self.assertEqual(leds.fast_forward, 1000)
+        self.assertEqual(leds.trace[2], {"set": {"RB0": "high"}, "note": "スイッチを押す"})
+        lcd = load(EXAMPLES / "lcd").targets[0]
+        self.assertEqual(lcd.trace[2], {"until_write": "PORTB", "count": 120, "until": 73})
+
+    def test_new_actions(self):
+        plan = parse_plan([{"set": {"rb0": 0}}, {"run_to": 3}, {"set": {"AN0": "2.5 V"}, "note": "n"},
+                           {"until_write": "PORTC", "count": 2, "until": 9, "wait_ms": 5}], "t")
+        self.assertEqual(plan[0], {"set": {"RB0": "low"}, "note": ""})
+        self.assertEqual(plan[2]["set"], {"AN0": "2.5V"})
+        self.assertEqual(plan[3], {"until_write": "PORTC", "count": 2, "until": 9, "wait_ms": 5})
+        self.assertEqual([pin_level(v) for v in (1, 0, True, "HIGH", "3.3v", "x", 2)], ["high", "low", "high", "high", "3.3V", None, None])
 
     def test_defaults(self):
         p = load(self.write(self.base()))
@@ -234,6 +321,12 @@ class ProjectTest(TempDirTest):
             self.base(id="Bad Id"),
             {"targets": [self.base()["targets"][0], self.base()["targets"][0]]},
             {"targets": []},
+            self.base(trace=[{"run_to": 3}, {"set": {"RB0": 5}}]),
+            self.base(trace=[{"run_to": 3}, {"set": {}}]),
+            self.base(trace=[{"until_write": "PORTC", "count": 2}]),
+            self.base(trace=[{"run_to": 3}, {"until_write": "PORTC"}]),
+            self.base(trace=[{"set": {"RB0": 1}}]),
+            self.base(fast_forward=7),
         ]
         for data in bad:
             with self.subTest(data=data), self.assertRaises(ProjectError):
@@ -283,6 +376,53 @@ class MdbTest(unittest.TestCase):
         self.assertLess(cmds.index("Delete 1"), cmds.index("Break a.c:22"))
         self.assertEqual(cmds[-1], "Quit")
 
+    def test_inputs_and_watches(self):
+        plan = [{"set": {"RB0": "low"}, "note": ""}, {"run_to": 13}, {"set": {"RB0": "high"}, "note": ""},
+                {"until_write": "PORTC", "count": 2, "until": 40, "wait_ms": 50}, {"run_to": 45, "show": 45}]
+        cmds, kinds = trace_commands("PIC16F999", Path("/w/a.elf"), "a.c", plan, ["PORTC"], 1000, [FAST_VAR])
+        self.assertEqual(kinds, ["start", "write", "write", "run"])
+        self.assertLess(cmds.index("write pin RB0 low"), cmds.index("Run"))
+        self.assertLess(cmds.index("write pin RB0 high"), cmds.index("Watch PORTC W"))
+        self.assertEqual(cmds[cmds.index("Watch PORTC W") - 1], "Delete 0")      # numbers are shared and never reused
+        self.assertEqual(cmds[cmds.index("Watch PORTC W") + 1], "Break a.c:40")
+        self.assertEqual(cmds[cmds.index("Break a.c:45") - 2:cmds.index("Break a.c:45")], ["Delete 1", "Delete 2"])
+        self.assertIn("Wait 50", cmds)
+        self.assertIn(f"Print {FAST_VAR}", cmds)
+
+
+class LineTableTest(TempDirTest):
+    def test_read_and_lookup(self):
+        p = self.tmp / "leds.cmf"
+        p.write_text(CMF, encoding="utf-8")
+        table = read_line_table(p, "leds.c")
+        self.assertEqual(table[0], (0x7C0, 13))
+        self.assertEqual(len(table), 8)                        # the .s and startup entries are left out
+        self.assertEqual(line_at(table, 0x7CA), 17)             # 0x7C7 is listed for 16 and 17: the later one wins
+        self.assertEqual(line_at(table, 0x7C3), 15)
+        self.assertIsNone(line_at(table, 0x700))
+        self.assertEqual(read_line_table(self.tmp / "none.cmf", "leds.c"), [])
+        self.assertEqual(writer_address("PIC16F886", 0x7CB), 0x7CA)
+        self.assertEqual(writer_address("PIC18F4550", 0x100), 0xFE)
+
+
+class FastForwardTest(unittest.TestCase):
+    def test_source_keeps_lines(self):
+        src = "#include <xc.h>\nvoid main(void) {\n    __delay_ms(500); // __delay_ms( in a comment\n    __delay_us(10);\n}"
+        new, count = fast_source(src)
+        self.assertEqual(count, 2)
+        old_lines, new_lines = src.splitlines(), new.splitlines()
+        self.assertEqual(new_lines[:len(old_lines)][2].split(";")[0].strip(), "PICVIEWER_DELAY_MS(500)")
+        self.assertEqual(new_lines[3], old_lines[3])            # __delay_us is left alone
+        self.assertEqual(new_lines[-1], f"volatile unsigned long {FAST_VAR};")
+        self.assertEqual(len(new_lines), len(old_lines) + 1)    # only one line is added, after the last one
+
+    def test_define(self):
+        d = fast_define(1000)
+        self.assertTrue(d.startswith("-DPICVIEWER_DELAY_MS(x)="))
+        self.assertIn("* 999UL", d)
+        self.assertIn("__delay_us((x) * 1UL)", d)
+        self.assertIn("* 900UL", fast_define(10))
+
 
 class BundleTest(unittest.TestCase):
     REGS = [{"name": "TRISB", "mask": 0xFF, "bits": []}, {"name": "TMR2", "mask": 0xFF, "bits": []}]
@@ -303,6 +443,23 @@ class BundleTest(unittest.TestCase):
         self.assertEqual(len(expand_plan([{"run_to": 1}, {"step": 3}, {"run_to": 5, "show": 4}])), 5)
         b = {"schema": 1, "steps": [{"a": 1}, {"a": 2}], "source": ["x", "y"], "empty": []}
         self.assertEqual(json.loads(dumps(b)), b)
+
+    def test_write_stops(self):
+        table = [(0x7C0, 13), (0x7C7, 17), (0x7CB, 18), (0x7DE, 19), (0x7E1, 20)]
+        plan = [{"set": {"RB0": "high"}, "note": "スイッチ"},
+                {"until_write": "PORTC", "count": 3, "until": 20}]
+        start = "Stop at\n\taddress:0x7c0\n\tsource line:13\nPORTC=0\npicviewer_skipped_us=0\nStopwatch cycle count = 5\n"
+        records = parse_records(start + WRITE_LOG, ["PORTC", FAST_VAR])
+        plan = [{"run_to": 13}] + plan
+        regs = [{"name": "PORTC", "mask": 0xFF, "bits": []}]
+        steps = make_steps(plan, records, regs, writer_line=lambda a: line_at(table, a - 1), skipped_var=FAST_VAR)
+        self.assertEqual([s["kind"] for s in steps], ["start", "write", "end"])  # the third stop is dropped
+        self.assertEqual(steps[1]["exec"], 17)                  # stopped at 18; the write was the word before
+        self.assertEqual(steps[1]["inputs"], {"RB0": "high"})
+        self.assertEqual(steps[1]["input_note"], "スイッチ")
+        self.assertEqual(steps[2]["exec"], 20)
+        self.assertEqual(steps[2]["skipped_us"], 499500)
+        self.assertEqual([s["cycles"] for s in steps], [5, 13, 530])
 
 
 class WaveTest(unittest.TestCase):
@@ -330,7 +487,8 @@ class WaveTest(unittest.TestCase):
 
 class RenderTest(TempDirTest):
     def test_examples_are_up_to_date(self):
-        for name in ("led", "motor"):
+        self.assertEqual(EXAMPLE_NAMES, ["lcd", "led", "motor", "switch_leds"])
+        for name in EXAMPLE_NAMES:
             with self.subTest(example=name):
                 project = load(EXAMPLES / name)
                 page = render_html(project, load_bundles(project))

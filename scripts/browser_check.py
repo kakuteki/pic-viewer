@@ -107,6 +107,32 @@ def motor():
     check("motor: play stops at the end", step=25, exec=61, playing=False, state="coast")
 
 
+def switch_leds():
+    open_page("examples/switch_leds/switch_leds_viewer.html")
+    check("leds: reset, all off", step=0, pattern="00000000", lit=0, pressed=False)
+    ab("click", "#bLast")
+    check("leds: last write shifts the LED to RC7", step=18, exec=36, kind="write", pattern="10000000", lit=1, pressed=True)
+    ab("click", 'li[data-line="33"]')
+    check("leds: one LED on RC0", step=11, exec=33, pattern="00000001", lit=1)
+    ab("click", 'li[data-line="30"]')
+    check("leds: switch pressed, first pattern", step=7, exec=30, pattern="00001111", lit=4, pressed=True)
+    ab("click", "#bPrev")
+    check("leds: waiting for the switch", step=6, kind="step", lit=0, pressed=False)
+
+
+def lcd():
+    open_page("examples/lcd/lcd_viewer.html")
+    check("lcd: reset", step=0, mode=8, display=False)
+    ab("eval", "(() => { const s = document.getElementById('slider'); s.value = '16'; s.dispatchEvent(new Event('input', {bubbles: true})); })()")
+    check("lcd: still the 8-bit start", step=16, mode=8)
+    ab("click", "#bNext")
+    check("lcd: function set 0x20 switches to 4 bits", step=17, exec=19, mode=4)
+    ab("click", 'li[data-line="26"]')
+    check("lcd: first character starts on a cleared, lit screen", exec=26, display=True, lines=["", ""])
+    ab("click", "#bLast")
+    check("lcd: HELLO and PIC on the screen", step=109, kind="end", exec=73, display=True, lines=["HELLO", "PIC"])
+
+
 def main():
     global failures
     if EXE is None:
@@ -115,6 +141,8 @@ def main():
     ab("set", "viewport", "1536", "864", quiet=True)
     led()
     motor()
+    switch_leds()
+    lcd()
     errors = ab("errors")
     if errors:
         failures += 1

@@ -6,12 +6,13 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-CIRCUIT_TYPES = ("pins", "led", "hbridge")
+CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd")
 COUNTER_RE = re.compile(r"^(TMR\d+[LH]?|T\d+TMR[LH]?)$")
-PROJECT_KEYS = {"title", "output", "bundles", "build", "circuit", "wait_ms", "targets"}
+PROJECT_KEYS = {"title", "output", "bundles", "build", "circuit", "wait_ms", "fast_forward", "targets"}
 TARGET_KEYS = {"id", "device", "source", "fosc_hz", "summary", "registers", "counters", "trace",
-               "circuit", "notes", "waves", "xc8_args", "wait_ms"}
+               "circuit", "notes", "waves", "xc8_args", "wait_ms", "fast_forward"}
 DEFAULT_WAIT_MS = 600000
+FAST_FACTORS = (10, 100, 1000)
 
 
 class ProjectError(Exception):
@@ -41,6 +42,7 @@ class Target:
     waves: list = field(default_factory=list)
     xc8_args: list = field(default_factory=list)
     wait_ms: int = DEFAULT_WAIT_MS
+    fast_forward: int | None = None
 
 
 @dataclass
@@ -76,27 +78,90 @@ def _pos_int(v):
     return isinstance(v, int) and not isinstance(v, bool) and v > 0
 
 
+def pin_level(value):
+    """0 / 1 / 'high' / 'low' / '2.5V' -> what mdb's write pin takes ('high', 'low' or '2.5V'), or None."""
+    if isinstance(value, bool) or value in (0, 1):
+        return "high" if value else "low"
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("high", "low"):
+            return s
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*v", s)
+        if m:
+            return f"{m.group(1)}V"
+    return None
+
+
 def parse_plan(raw, where):
-    """trace: [{"run_to": L}, {"step": N} | {"run_to": L, "show": L2}, ...]"""
+    """trace: a list of actions.
+
+    {"run_to": L}                       run (or continue) to line L and stop; the first stop must be one
+    {"run_to": L, "show": S}            same, and show line S as the line that ran
+    {"step": N}                         step N source lines, stopping at each
+    {"set": {"RB0": 1, "AN0": "2.5V"}}  drive input pins before the next stop (optional "note")
+    {"until_write": "PORTC", "count": N}  continue and stop after each write to the register, N times;
+                                        with "until": L, stop collecting when line L is reached
+    """
     if not isinstance(raw, list) or not raw:
         raise ProjectError(f"{where}: trace が空")
-    first = raw[0]
-    if not (isinstance(first, dict) and set(first) == {"run_to"} and _pos_int(first["run_to"])):
-        raise ProjectError(f'{where}: trace の最初は {{"run_to": 行番号}}（main の最初の行など）')
-    plan = [{"run_to": first["run_to"]}]
-    for i, a in enumerate(raw[1:], start=2):
-        if isinstance(a, dict) and set(a) == {"step"} and _pos_int(a["step"]):
+    plan, started = [], False
+    for i, a in enumerate(raw, start=1):
+        bad = ProjectError(f"{where}: trace の {i} 番目が読めない: {a!r}")
+        if not isinstance(a, dict):
+            raise bad
+        if set(a) == {"step"} and _pos_int(a["step"]):
+            if not started:
+                raise ProjectError(f'{where}: trace の最初の止め方は {{"run_to": 行番号}}（main の最初の行など）')
             plan.append({"step": a["step"]})
-        elif (isinstance(a, dict) and "run_to" in a and set(a) <= {"run_to", "show"} and _pos_int(a["run_to"])
-              and (a.get("show") is None or _pos_int(a["show"]))):
-            plan.append({"run_to": a["run_to"], "show": a.get("show") or a["run_to"]})
+        elif "run_to" in a and set(a) <= {"run_to", "show"} and _pos_int(a["run_to"]) \
+                and (a.get("show") is None or _pos_int(a["show"])):
+            if not started:
+                if "show" in a:
+                    raise ProjectError(f"{where}: 最初の run_to に show は付けない")
+                plan.append({"run_to": a["run_to"]})
+                started = True
+            else:
+                plan.append({"run_to": a["run_to"], "show": a.get("show") or a["run_to"]})
+        elif "set" in a and set(a) <= {"set", "note"} and isinstance(a["set"], dict) and a["set"]:
+            levels = {}
+            for pin, value in a["set"].items():
+                level = pin_level(value)
+                if not (isinstance(pin, str) and re.fullmatch(r"[A-Za-z]{1,6}\d{0,3}", pin)) or level is None:
+                    raise ProjectError(f'{where}: trace の {i} 番目の set が読めない: {pin!r}: {value!r}'
+                                       '（ピン名に 0、1、"high"、"low"、"2.5V" のどれか）')
+                levels[pin.upper()] = level
+            plan.append({"set": levels, "note": str(a.get("note", ""))})
+        elif "until_write" in a and set(a) <= {"until_write", "count", "until", "wait_ms"} \
+                and isinstance(a["until_write"], str) and re.fullmatch(r"\w+", a["until_write"]) \
+                and _pos_int(a.get("count")) and (a.get("until") is None or _pos_int(a["until"])) \
+                and (a.get("wait_ms") is None or _pos_int(a["wait_ms"])):
+            if not started:
+                raise ProjectError(f'{where}: until_write の前に {{"run_to": 行番号}} で一度止める')
+            action = {"until_write": a["until_write"], "count": a["count"]}
+            for key in ("until", "wait_ms"):
+                if a.get(key) is not None:
+                    action[key] = a[key]
+            plan.append(action)
         else:
-            raise ProjectError(f'{where}: trace の {i} 番目が読めない: {a!r}（{{"step": 回数}} か {{"run_to": 行, "show": 行}}）')
+            raise bad
+    if not started:
+        raise ProjectError(f'{where}: trace に {{"run_to": 行番号}} が無い')
     return plan
 
 
 def plan_lines(plan):
-    return sorted({a["run_to"] for a in plan if "run_to" in a})
+    """Lines the simulator must be able to stop at."""
+    lines = {a["run_to"] for a in plan if "run_to" in a}
+    lines |= {a["until"] for a in plan if a.get("until")}
+    return sorted(lines)
+
+
+def plan_pins(plan):
+    return sorted({p for a in plan if "set" in a for p in a["set"]})
+
+
+def plan_watches(plan):
+    return sorted({a["until_write"] for a in plan if "until_write" in a})
 
 
 def _target(raw, project_dir, defaults, index):
@@ -142,12 +207,15 @@ def _target(raw, project_dir, defaults, index):
     wait_ms = raw.get("wait_ms", defaults.get("wait_ms", DEFAULT_WAIT_MS))
     if not _pos_int(wait_ms):
         raise ProjectError(f"{where}: wait_ms は正の整数（ミリ秒）")
+    fast = raw.get("fast_forward", defaults.get("fast_forward"))
+    if fast is not None and fast not in FAST_FACTORS:
+        raise ProjectError(f"{where}: fast_forward は {FAST_FACTORS} のどれか（__delay_ms を何分の 1 にするか）")
     return Target(
         id=tid, device=normalize_device(raw["device"]), source=source,
         source_name=Path(raw["source"]).as_posix(), registers=list(regs),
         trace=parse_plan(raw["trace"], where), fosc_hz=fosc, summary=raw.get("summary", ""),
         notes=dict(notes), circuit=circuit, counters=list(counters), waves=waves,
-        xc8_args=list(raw.get("xc8_args", [])), wait_ms=wait_ms,
+        xc8_args=list(raw.get("xc8_args", [])), wait_ms=wait_ms, fast_forward=fast,
     )
 
 

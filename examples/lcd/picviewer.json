@@ -1,0 +1,34 @@
+{
+  "title": "LCD に文字を出す（lcd.c）",
+  "output": "lcd_viewer.html",
+  "fast_forward": 1000,
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/lcd.c",
+      "fosc_hz": 8000000,
+      "summary": "文字表示の LCD（HD44780 互換、16 文字 2 行）を 4 ビットでつなぎ、HELLO と PIC を出す",
+      "registers": ["OSCCON", "ANSELH", "TRISB", "PORTB"],
+      "trace": [
+        { "run_to": 62 },
+        { "step": 4 },
+        { "until_write": "PORTB", "count": 120, "until": 73 }
+      ],
+      "circuit": { "type": "lcd", "port": "B", "rs": 0, "rw": 1, "e": 2, "data": "high", "rows": 2, "cols": 16 },
+      "notes": {
+        "62": "内部発振器を 8 MHz に設定する。",
+        "63": "PORTA 側のアナログ入力を無効にする。",
+        "64": "PORTB 側のアナログ入力を無効にする。LCD につなぐピンをデジタルで使う。",
+        "65": "PORTB を全部出力にする。LCD の RS、R/W、E、D4-D7 につながっている。",
+        "66": "PORTB を 0 にする。RS = 0、R/W = 0（書き込み）、E = 0 から始める。",
+        "17": "D4-D7 に送る 4 ビットを出す（下位の RS、R/W、E はそのまま）。",
+        "18": "E を 1 にする。",
+        "19": "E を 0 にする。LCD はこの下がる瞬間に D4-D7 を読む。",
+        "26": "RS を 1 にする（これから送るのは文字）。",
+        "28": "RS を 0 にする（これから送るのはコマンド）。",
+        "73": "文字を出し終えて、何もしないループに入った。ここで書き込みの記録を終える。"
+      }
+    }
+  ]
+}

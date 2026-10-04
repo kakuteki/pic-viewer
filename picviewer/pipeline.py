@@ -6,10 +6,11 @@ from pathlib import Path
 
 from . import bundle as bundle_io
 from .bundle import make_bundle, make_steps, read_source, register_info
-from .compiler import compile_target
+from .compiler import FAST_VAR, compile_target
+from .linetab import line_at, read_line_table, writer_address
 from .mdb import MdbError, parse_records, probe_commands, probe_errors, run as mdb_run, trace_commands
 from .picdef import PicDef
-from .project import plan_lines
+from .project import plan_lines, plan_pins, plan_watches
 from .toolchain import find_device_file, xc8_version
 from .wave import parse_samples, summarize, wave_commands
 
@@ -22,17 +23,37 @@ def _say(message):
     print(message, flush=True)       # keep progress in order with error messages when the output is piped
 
 
+def check_names(target, picdef):
+    """Names mdb would not check for us: a wrong pin stops mdb, and a wrong watched register is accepted silently."""
+    known = {n.upper() for names in picdef.pins() for n in names}
+    errors = []
+    bad_pins = [p for p in plan_pins(target.trace) if p.upper() not in known]
+    if bad_pins:
+        errors.append(f"{target.device} に無いピン名: {bad_pins}（RB0、AN0 のようにデバイス定義ファイルの名前で書く）")
+    for reg in plan_watches(target.trace):
+        try:
+            if picdef.sfr(reg)["width"] > 8:
+                errors.append(f"until_write の {reg} は 8 ビットのレジスタではない")
+        except KeyError:
+            errors.append(f"until_write の {reg} というレジスタは {target.device} に無い")
+    if errors:
+        raise MdbError("\n".join(errors))
+
+
 def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=True, log=_say):
     work = project.build_dir / target.id
     work.mkdir(parents=True, exist_ok=True)
     elf = work / (target.source.stem + ".elf")
     if compile:
-        log(f"[{target.id}] XC8 でコンパイル: {target.source_name}")
+        fast = f"（__delay_ms を 1/{target.fast_forward} にした版）" if target.fast_forward else ""
+        log(f"[{target.id}] XC8 でコンパイル: {target.source_name}{fast}")
         elf = compile_target(tc.require_xc8(), target, work)
     device_file, pack_name, pack_version = find_device_file(target.device, tc.pack_dirs)
     picdef = PicDef(device_file)
     registers = register_info(picdef, target.registers)
+    check_names(target, picdef)
     src = target.source.name             # mdb finds breakpoints by the file name the ELF was built from
+    variables = [FAST_VAR] if target.fast_forward else []
 
     def need_simulator():
         if not elf.is_file():
@@ -46,17 +67,23 @@ def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=T
     else:
         mdb = need_simulator()
         lines = sorted(set(plan_lines(target.trace)) | {w.at for w in target.waves})
+        names = list(dict.fromkeys(target.registers + plan_watches(target.trace) + variables))
         log(f"[{target.id}] シミュレータで下調べ（止める行 {lines} とレジスタ名）")
-        probe_text = mdb_run(mdb, probe_commands(target.device, elf, src, lines, target.registers),
+        probe_text = mdb_run(mdb, probe_commands(target.device, elf, src, lines, names),
                              work / "probe.log", timeout=300)
         errors = probe_errors(probe_text, target.source_name, target.device)
         if errors:
             raise MdbError("\n".join(errors))
-        cmds, kinds = trace_commands(target.device, elf, src, target.trace, target.registers, target.wait_ms)
-        runs = sum(1 for a in target.trace if "run_to" in a)
+        cmds, kinds = trace_commands(target.device, elf, src, target.trace, target.registers,
+                                     target.wait_ms, variables)
+        waits = sum(1 for k in kinds if k in ("start", "run", "write"))
         log(f"[{target.id}] シミュレータで実行（{len(kinds)} 回止めてレジスタを読む）")
-        text = mdb_run(mdb, cmds, trace_log, timeout=300 + runs * target.wait_ms / 1000 + len(kinds) * 3)
-    steps = make_steps(target.trace, parse_records(text, target.registers), registers)
+        text = mdb_run(mdb, cmds, trace_log, timeout=300 + waits * target.wait_ms / 1000 + len(kinds) * 3)
+
+    table = read_line_table(elf.with_suffix(".cmf"), src)
+    steps = make_steps(target.trace, parse_records(text, target.registers + variables), registers,
+                       writer_line=lambda a: line_at(table, writer_address(target.device, a)) if table else None,
+                       skipped_var=FAST_VAR if target.fast_forward else None)
 
     wave_results = []
     if waves:

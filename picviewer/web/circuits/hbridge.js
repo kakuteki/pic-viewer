@@ -215,7 +215,7 @@
           { label: 'デューティ', value: B.dir ? `${pct} %（${B.d1 || B.d2} / ${B.dmax}）` : '-', tone },
           { label: 'PWM 周波数', value: freqText },
           { label: 'モーターの平均電圧', value: B.dir ? `約 ${U.num(B.duty * vm)} V` : '0 V', tone },
-          { label: 'リセットからの時間', value: instrHz ? fmtTime(st.cycles / instrHz) : '-' },
+          { label: 'リセットからの時間', value: ctx.seconds !== null ? fmtTime(ctx.seconds) : '-' },
         ],
         text,
         probe: { state: B.state, duty: pct, q: ['q1', 'q2', 'q3', 'q4'].map((k) => (B.q[k] ? '1' : '0')).join('') },
