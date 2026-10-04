@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import __version__
 from . import bundle as bundle_io
+from .project import circuit_parts
 
 WEB = Path(__file__).resolve().parent / "web"
 DATA_MARKER = "/*__DATA__*/"
@@ -54,8 +55,9 @@ def render_html(project, bundles):
     data = page_data(project, bundles)
     types = []
     for t in data["targets"]:
-        if t["circuit"]["type"] not in types:
-            types.append(t["circuit"]["type"])
+        for part in circuit_parts(t["circuit"]):
+            if part["type"] not in types:
+                types.append(part["type"])
     if "pins" not in types:
         types.append("pins")       # the fallback view is always there
     js = "\n".join([_read(WEB / "circuits" / f"{ty}.js") for ty in types] + [_read(WEB / "core.js")])

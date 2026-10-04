@@ -11,7 +11,7 @@
     return {
       port: String(cfg.port || 'B').toUpperCase(),
       rs: cfg.rs === undefined ? 0 : cfg.rs,
-      rw: cfg.rw === undefined ? 1 : cfg.rw,
+      rw: cfg.rw === undefined ? 1 : cfg.rw,      // null: R/W is tied to GND (the program only writes)
       e: cfg.e === undefined ? 2 : cfg.e,
       high: cfg.data !== 'low',
       rows: cfg.rows || 2,
@@ -106,7 +106,7 @@
         screen.append(row);
       }
       const bus = U.el('div', 'bus');
-      const lines = [['RS', c.rs], ['R/W', c.rw], ['E', c.e]];
+      const lines = [['RS', c.rs], ...(c.rw === null ? [] : [['R/W', c.rw]]), ['E', c.e]];
       (c.high ? [7, 6, 5, 4] : [3, 2, 1, 0]).forEach((b, j) => lines.push([`D${7 - j}`, b]));
       lines.forEach(([label, bit]) => {
         const cell = U.el('span', 'line');
@@ -118,10 +118,11 @@
       box.append(screen, bus, log);
       const pins = (b) => U.pinsWith(t, `R${c.port}${b}`).join('、');
       return {
-        sub: `${c.cols} 文字 ${c.rows} 行、4 ビット接続（RS = R${c.port}${c.rs}、E = R${c.port}${c.e}、D4-D7 = R${c.port}${c.high ? '4-7' : '0-3'}）`,
+        sub: `${c.cols} 文字 ${c.rows} 行、4 ビット接続（RS = R${c.port}${c.rs}、E = R${c.port}${c.e}、D4-D7 = R${c.port}${c.high ? '4-7' : '0-3'}${c.rw === null ? '、R/W は GND' : ''}）`,
         assume: `LCD の中身は、${t.source_name} がポートに書いた値を最初から順にたどり、E が 1 から 0 に下がるたびに 4 ビットを読んで HD44780 の命令として解いたもの。RS は ${pins(c.rs)} 番ピン、E は ${pins(c.e)} 番ピン。`,
-        regHint: `太い枠のビットが LCD につないだピン（RS、R/W、E、データ線）。`,
-        marks: [c.rs, c.rw, c.e, ...(c.high ? [4, 5, 6, 7] : [0, 1, 2, 3])].flatMap((b) => ['PORT', 'LAT'].map((p) => ({ reg: p + c.port, bit: b }))),
+        regHint: `太い枠のビットが LCD につないだピン（RS、${c.rw === null ? '' : 'R/W、'}E、データ線）。`,
+        marks: [c.rs, c.rw, c.e, ...(c.high ? [4, 5, 6, 7] : [0, 1, 2, 3])].filter((b) => b !== null)
+          .flatMap((b) => ['PORT', 'LAT'].map((p) => ({ reg: p + c.port, bit: b }))),
         foot: ['LCD の画面は、シミュレータが読んだポートの値から、このページの中で HD44780 の動きをまねて描いたもの（LCD 自体はシミュレータに無い）。書き込みを全部止めて記録していないと、E の変わり目を見落とす。'],
       };
     },

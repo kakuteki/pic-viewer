@@ -210,6 +210,45 @@ def seg7_counter():
     check("seg7: released again, waits", kind="timeout", pressed=[])
 
 
+def calculator():
+    steps = steps_of("calculator")
+    note = {s["input_note"]: i for i, s in enumerate(steps) if s.get("input_note")}
+    open_page("examples/calculator/calculator_viewer.html")
+    goto(note["1 を押す"])
+    check("calc: 1 held, row RB0 at 0, column RB4 reads 0", kind="run", exec=114, key="1", row=0, cols="0111")
+    goto(note["= を押す"])
+    check("calc: = held, row RB3 at 0, column RB6 reads 0", key="=", row=3, cols="1101", lines=["12+34", ""])
+    expect("calc: the held key is what joins row and column", "列 RB6 が 0 と読める" in text_of("cirText"), text_of("cirText"))
+    goto(note["C を押す"] - 1)
+    check("calc: after = the answer is on the second line", kind="end", key="", lines=["12+34", "=46"])
+    ab("click", "#bLast")
+    check("calc: C clears the screen", key="", lines=["", ""])
+
+
+def voltmeter():
+    ends = [i for i, s in enumerate(steps_of("voltmeter")) if s["kind"] == "end"]
+    open_page("examples/voltmeter/voltmeter_viewer.html")
+    for k, volts, adc, shown in zip(ends, (1.25, 3.3, 0.5, 5), (255, 675, 102, 1023), ("1.25V", "3.30V", "0.50V", "5.00V")):
+        goto(k)
+        check(f"volt: {volts} V on AN0 reads {adc} and shows {shown}", volts=volts, adc=adc, lines=[shown, ""])
+
+
+def stopwatch():
+    steps = steps_of("stopwatch")
+    runs = [i for i, s in enumerate(steps) if s["kind"] == "run"]
+    open_page("examples/stopwatch/stopwatch_viewer.html")
+    goto(runs[0] - 1)
+    check("stopwatch: shows 0 and waits while stopped", kind="timeout", digit="0", pressed=False)
+    expect("stopwatch: the wait stopped inside XC8's division routine, not on a line of ours",
+           "awdiv.c" in text_of("exNote"), text_of("exNote"))
+    goto(runs[0])
+    check("stopwatch: pressed, waits for the release", kind="run", exec=55, pressed=True)
+    goto(runs[0] + 3)
+    check("stopwatch: counts to 3", kind="write", exec=62, digit="3", pressed=False)
+    ab("click", "#bLast")
+    check("stopwatch: pressed again, stopped at 5", kind="timeout", digit="5")
+
+
 def main():
     global failures
     if EXE is None:
@@ -222,6 +261,9 @@ def main():
     lcd()
     buttons()
     seg7_counter()
+    calculator()
+    voltmeter()
+    stopwatch()
     errors = ab("errors")
     if errors:
         failures += 1

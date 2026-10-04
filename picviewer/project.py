@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd", "seg7")
+CIRCUIT_TYPES = ("pins", "led", "hbridge", "leds", "lcd", "seg7", "keypad", "pot")
 COUNTER_RE = re.compile(r"^(TMR\d+[LH]?|T\d+TMR[LH]?)$")
 PROJECT_KEYS = {"title", "output", "bundles", "build", "circuit", "wait_ms", "fast_forward", "targets"}
 TARGET_KEYS = {"id", "device", "source", "fosc_hz", "summary", "registers", "counters", "trace",
@@ -101,6 +101,8 @@ def parse_plan(raw, where):
     {"set": {"RB0": 1, "AN0": "2.5V"}}  drive input pins before the next stop (optional "note")
     {"until_write": "PORTC", "count": N}  continue and stop after each write to the register, N times;
                                         with "until": L, stop collecting when line L is reached
+    {"press": "5"}                      hold a key of the keypad in the circuit (optional "note")
+    {"release": true}                   let go of the held key (optional "note")
     """
     if not isinstance(raw, list) or not raw:
         raise ProjectError(f"{where}: trace が空")
@@ -131,6 +133,10 @@ def parse_plan(raw, where):
                                        '（ピン名に 0、1、"high"、"low"、"2.5V" のどれか）')
                 levels[pin.upper()] = level
             plan.append({"set": levels, "note": str(a.get("note", ""))})
+        elif "press" in a and set(a) <= {"press", "note"} and isinstance(a["press"], str) and a["press"]:
+            plan.append({"press": a["press"], "note": str(a.get("note", ""))})
+        elif "release" in a and set(a) <= {"release", "note"} and a["release"] is True:
+            plan.append({"release": True, "note": str(a.get("note", ""))})
         elif "until_write" in a and set(a) <= {"until_write", "count", "until", "wait_ms"} \
                 and isinstance(a["until_write"], str) and re.fullmatch(r"\w+", a["until_write"]) \
                 and _pos_int(a.get("count")) and (a.get("until") is None or _pos_int(a["until"])) \
@@ -164,6 +170,56 @@ def plan_watches(plan):
     return sorted({a["until_write"] for a in plan if "until_write" in a})
 
 
+def circuit_parts(circuit):
+    """The circuit of a target as a list of parts (a single dict is one part)."""
+    return circuit if isinstance(circuit, list) else [circuit]
+
+
+def keypad_of(circuit):
+    """The keypad part of a circuit, or None."""
+    return next((p for p in circuit_parts(circuit) if p.get("type") == "keypad"), None)
+
+
+def keypad_keys(part):
+    """{label: (row pin, column pin)} of a keypad part; raises ProjectError when the part is malformed."""
+    rows, cols, keys = part.get("rows"), part.get("cols"), part.get("keys")
+    pin_list = lambda v: isinstance(v, list) and v and all(isinstance(p, str) and re.fullmatch(r"R[A-E][0-7]", p.upper()) for p in v)
+    if not (pin_list(rows) and pin_list(cols)):
+        raise ProjectError('keypad の rows と cols はピン名の並び（例 ["RB0", "RB1", "RB2", "RB3"]）')
+    if not (isinstance(keys, list) and len(keys) == len(rows)
+            and all(isinstance(r, list) and len(r) == len(cols) and all(isinstance(k, str) for k in r) for r in keys)):
+        raise ProjectError(f"keypad の keys は {len(rows)} 行 {len(cols)} 列の文字の表")
+    out = {}
+    for r, row in enumerate(keys):
+        for c, label in enumerate(row):
+            if label in out:
+                raise ProjectError(f"keypad の keys に {label!r} が 2 つある")
+            out[label] = (rows[r].upper(), cols[c].upper())
+    return out
+
+
+def _circuit(raw, defaults, where):
+    if isinstance(raw.get("circuit"), list):
+        parts = raw["circuit"]
+        if not parts or not all(isinstance(p, dict) for p in parts):
+            raise ProjectError(f"{where}: circuit を並べるときは、回路の設定（辞書）を 1 つ以上")
+        parts = [dict(p) for p in parts]
+    else:
+        merged = dict(defaults.get("circuit", {}))
+        merged.update(raw.get("circuit", {}))
+        parts = [merged]
+    for p in parts:
+        p.setdefault("type", "pins")
+        if p["type"] not in CIRCUIT_TYPES:
+            raise ProjectError(f"{where}: circuit.type は {CIRCUIT_TYPES} のどれか: {p['type']!r}")
+        if p["type"] == "keypad":
+            try:
+                keypad_keys(p)
+            except ProjectError as e:
+                raise ProjectError(f"{where}: {e}") from None
+    return parts if isinstance(raw.get("circuit"), list) else parts[0]
+
+
 def _target(raw, project_dir, defaults, index):
     where = f"targets[{index}]"
     if not isinstance(raw, dict):
@@ -186,11 +242,7 @@ def _target(raw, project_dir, defaults, index):
     notes = raw.get("notes", {})
     if not isinstance(notes, dict) or not all(re.fullmatch(r"[1-9]\d*", k) and isinstance(v, str) for k, v in notes.items()):
         raise ProjectError(f'{where}: notes は {{"行番号": "説明"}} の形')
-    circuit = dict(defaults.get("circuit", {}))
-    circuit.update(raw.get("circuit", {}))
-    circuit.setdefault("type", "pins")
-    if circuit["type"] not in CIRCUIT_TYPES:
-        raise ProjectError(f"{where}: circuit.type は {CIRCUIT_TYPES} のどれか: {circuit['type']!r}")
+    circuit = _circuit(raw, defaults, where)
     fosc = raw.get("fosc_hz")
     if fosc is not None and not _pos_int(fosc):
         raise ProjectError(f"{where}: fosc_hz は正の整数（Hz）")
@@ -210,10 +262,19 @@ def _target(raw, project_dir, defaults, index):
     fast = raw.get("fast_forward", defaults.get("fast_forward"))
     if fast is not None and fast not in FAST_FACTORS:
         raise ProjectError(f"{where}: fast_forward は {FAST_FACTORS} のどれか（__delay_ms を何分の 1 にするか）")
+    trace = parse_plan(raw["trace"], where)
+    presses = [a["press"] for a in trace if "press" in a]
+    if presses or any("release" in a for a in trace):
+        pad = keypad_of(circuit)
+        if pad is None:
+            raise ProjectError(f'{where}: press と release には、circuit に {{"type": "keypad", ...}} が要る')
+        unknown = sorted(set(presses) - set(keypad_keys(pad)))
+        if unknown:
+            raise ProjectError(f"{where}: keypad に無いキー: {unknown}")
     return Target(
         id=tid, device=normalize_device(raw["device"]), source=source,
         source_name=Path(raw["source"]).name, registers=list(regs),
-        trace=parse_plan(raw["trace"], where), fosc_hz=fosc, summary=raw.get("summary", ""),
+        trace=trace, fosc_hz=fosc, summary=raw.get("summary", ""),
         notes=dict(notes), circuit=circuit, counters=list(counters), waves=waves,
         xc8_args=list(raw.get("xc8_args", [])), wait_ms=wait_ms, fast_forward=fast,
     )

@@ -1,0 +1,47 @@
+{
+  "title": "電圧計（volt.c、可変抵抗と AD 変換と文字表示の LCD）",
+  "output": "voltmeter_viewer.html",
+  "fast_forward": 1000,
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/volt.c",
+      "fosc_hz": 4000000,
+      "summary": "可変抵抗のつまみを 1.25 V、3.3 V、0.5 V、5 V と回すと、LCD の表示がそのたびに変わる",
+      "wait_ms": 60000,
+      "registers": ["OSCCON", "ANSEL", "TRISA", "TRISC", "ADCON0", "ADCON1", "ADRESH", "ADRESL", "PORTA", "PORTC"],
+      "trace": [
+        { "set": { "AN0": "1.25V" }, "note": "つまみは 1.25 V の所" },
+        { "run_to": 73 },
+        { "step": 9 },
+        { "until_write": "PORTC", "count": 100, "until": 97 },
+        { "set": { "AN0": "3.3V" }, "note": "つまみを 3.3 V まで回す" },
+        { "until_write": "PORTC", "count": 50, "until": 97 },
+        { "set": { "AN0": "0.5V" }, "note": "つまみを 0.5 V まで戻す" },
+        { "until_write": "PORTC", "count": 50, "until": 97 },
+        { "set": { "AN0": "5V" }, "note": "つまみをいっぱいまで回す（5 V）" },
+        { "until_write": "PORTC", "count": 50, "until": 97 }
+      ],
+      "circuit": [
+        { "type": "pot", "pin": "AN0" },
+        { "type": "lcd", "port": "C", "rs": 4, "e": 5, "rw": null, "data": "low" }
+      ],
+      "notes": {
+        "18": "LCD の D4-D7（RC0-RC3）に 4 ビットを出す。",
+        "19": "E を 1 にする。",
+        "20": "E を 0 に下げた。LCD はこの時にデータ線の 4 ビットを読む。",
+        "25": "RS を決める。0 なら命令、1 なら文字。",
+        "65": "AD 変換を始める（GO/DONE を 1 に）。",
+        "66": "変換が終わって GO/DONE が 0 に戻るまで待つ。",
+        "68": "結果は ADRESH（上位 2 ビット）と ADRESL（下位 8 ビット）を合わせた 10 ビット。",
+        "76": "AN0 だけをアナログ入力にする。",
+        "80": "結果を右詰めにする（ADFM = 1）。基準電圧は電源と GND。",
+        "81": "変換クロックを Fosc/8 にして、AN0 を選び、AD 変換器を動かす。",
+        "87": "0〜1023 を、0.01 V 単位の 0〜500 に直す（四捨五入）。",
+        "88": "前に出した値と違う時だけ、LCD を書き直す。",
+        "97": "0.1 秒待って、また測る。"
+      }
+    }
+  ]
+}

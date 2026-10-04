@@ -130,6 +130,7 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 
 /* circuit drawings */
 .cirbox { overflow-x: auto; }
+.cirpart + .cirpart { margin-top: 14px; }
 #cir { display: block; width: 100%; min-width: 480px; height: auto; max-height: 600px; }
 #cir text { font-family: inherit; fill: var(--fg); font-size: 17px; }
 #cir text.big { font-size: 19px; }
@@ -161,6 +162,15 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
 #cir .halo { fill: var(--led); opacity: 0; }
 #cir[data-lit="1"] .led-body, #cir .ledg.lit .led-body { fill: var(--led); }
 #cir[data-lit="1"] .halo, #cir .ledg.lit .halo { opacity: .3; }
+
+/* keypad and potentiometer */
+#cir.keypad { max-width: 470px; min-width: 300px; }
+#cir.narrow { max-width: 230px; min-width: 0; }
+#cir .wire path.hot { stroke: var(--recirc); stroke-width: 3.5; }
+#cir .key rect { fill: var(--panel); stroke: var(--fg); stroke-width: 1.5; }
+#cir .key text { font-family: var(--mono); font-weight: 700; }
+#cir .key.held rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 3.5; }
+#cir .wiper { fill: var(--fg); stroke: var(--fg); stroke-width: 2; }
 
 /* 7-segment LED */
 #cir .seg { fill: var(--led-off); stroke: var(--wire); stroke-width: 1; }

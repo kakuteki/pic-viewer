@@ -28,10 +28,14 @@ def expand_plan(plan):
     """One entry per stop: kind, the line it must stop at (or None), the line to show (or None),
     the inputs set just before it, and for write stops the register and the line that ends the run."""
     out, inputs, notes = [], {}, []
+    key = None                       # the key pressed ("5") or released ("") before the next stop
     started, segment = False, 0
     for a in plan:
-        if "set" in a:
-            inputs.update(a["set"])
+        if "set" in a or "press" in a or "release" in a:
+            if "set" in a:
+                inputs.update(a["set"])
+            else:
+                key = a.get("press", "")
             if a.get("note"):
                 notes.append(a["note"])
             continue
@@ -46,15 +50,18 @@ def expand_plan(plan):
             new = [{"kind": "write", "want": None, "show": None, "watch": a["until_write"],
                     "until": a.get("until"), "segment": segment}] * a["count"]
         new = [dict(e) for e in new]
-        if inputs or notes:
+        if inputs or notes or key is not None:
             new[0]["inputs"], new[0]["input_note"] = inputs, "、".join(notes)
-            inputs, notes = {}, []
+            if key is not None:
+                new[0]["key"] = key
+            inputs, notes, key = {}, [], None
         out += new
     return out
 
 
-def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_per_ms=0):
-    """Steps for the page. writer_line(address) gives the source line of the instruction that made a write stop.
+def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_per_ms=0, line_of=None):
+    """Steps for the page. writer_line(address) gives the source line of the instruction that made a write stop,
+    line_of(address) the line of a stop address the ELF gives no line for (from XC8's map file).
     delay_var is the fast-forward count of milliseconds asked of __delay_ms; us_per_ms of each were cut away.
 
     A write stop made by Halt after the wait ran out becomes a 'timeout' step (nothing was written);
@@ -68,7 +75,7 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
     for i, (e, rec, cyc) in enumerate(zip(expected, records, cycles)):
         timeout = rec.get("timeout", False)
         if e["kind"] == "write" and (e["segment"] in ended or (timeout and last_kind.get(e["segment"]) == "timeout")):
-            carry.update({k: e[k] for k in ("inputs", "input_note") if k in e})   # dropped stop: keep its inputs
+            carry.update({k: e[k] for k in ("inputs", "input_note", "key") if k in e})   # dropped stop: keep its inputs
             continue
         if timeout and e["kind"] != "write":
             where = f"{rec['line']} 行目のあたり" if rec["line"] else "行番号の無い所"
@@ -76,6 +83,8 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
                            f"（止めた所は {where}）。入力（set）か wait_ms を見直す")
         if e["want"] is not None and rec["line"] != e["want"]:
             raise MdbError(f"{i + 1} 回目は {e['want']} 行目で止まるはずが {rec['line']} 行目で止まった")
+        if rec["line"] is None and e["kind"] == "step":
+            raise MdbError(f"{i + 1} 回目の停止で行番号が読めない（行番号の無いところで止まった）")
         kind = e["kind"]
         if kind == "start":
             executed = None
@@ -93,16 +102,23 @@ def make_steps(plan, records, registers, writer_line=None, delay_var=None, us_pe
             executed = line or rec["line"]
         if e["kind"] == "write":
             last_kind[e["segment"]] = kind
-        step = {"kind": kind, "exec": executed, "next": rec["line"], "addr": rec["addr"], "cycles": cyc,
+        next_line = rec["line"]
+        if next_line is None and line_of and rec["addr"] and not rec.get("where"):
+            next_line = line_of(int(rec["addr"], 16))     # code the compiler added inside the program
+        step = {"kind": kind, "exec": executed, "next": next_line, "addr": rec["addr"], "cycles": cyc,
                 "v": [rec["values"][r["name"]] & r["mask"] for r in registers]}
+        if rec.get("where"):
+            step["where"] = rec["where"]
         if e["kind"] == "write":
             step["watch"] = e["watch"]
-        inputs = {**carry, **{k: e[k] for k in ("inputs", "input_note") if k in e}}
+        inputs = {**carry, **{k: e[k] for k in ("inputs", "input_note", "key") if k in e}}
         carry = {}
         if inputs.get("inputs"):
             step["inputs"] = inputs["inputs"]
-            if inputs.get("input_note"):
-                step["input_note"] = inputs["input_note"]
+        if inputs.get("input_note") and (inputs.get("inputs") or "key" in inputs):
+            step["input_note"] = inputs["input_note"]
+        if "key" in inputs:
+            step["key"] = inputs["key"]
         if delay_var and delay_var in rec["values"]:
             step["skipped_us"] = (rec["values"][delay_var] & 0xFFFFFFFF) * us_per_ms
         steps.append(step)

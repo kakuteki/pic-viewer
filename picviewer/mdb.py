@@ -83,8 +83,30 @@ def probe_errors(text, source_name, device):
     return errors
 
 
-def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables=()):
+def key_stimulus(device, row, col):
+    """SCL for one held key of a scanned matrix: the column follows the row while the program drives it."""
+    return "\n".join([
+        f'testbench for "{device.lower()}" is',
+        "begin",
+        "    process is",
+        "    begin",
+        "        loop",
+        f"            wait until {row} == '0';",
+        f"            {col} <= '0';",
+        f"            wait until {row} == '1';",
+        f"            {col} <= '1';",
+        "        end loop;",
+        "    end process;",
+        "end testbench;",
+        "",
+    ])
+
+
+def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables=(), keypad=None):
     """Commands for the whole plan, and the kind of each stop ('start', 'step', 'run' or 'write').
+
+    keypad: {"cols": [column pins], "keys": {label: (row, column)}, "scl": {label: SCL file}}. The columns
+    start high (the simulator has no pull-ups); a press loads the key's SCL with Stim, a release clears it.
 
     Breakpoints and watchpoints share one numbering (0, 1, 2, ...) and a number is never reused,
     so the ones in force can be deleted by number before the next run_to or until_write.
@@ -95,6 +117,15 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
     cmds = header(device, elf)
     kinds, active = [], []
     next_no, started = 0, False
+    held = None
+    if keypad:
+        cmds.extend(f"write pin {c} high" for c in keypad["cols"])
+
+    def let_go():
+        nonlocal held
+        if held is not None:
+            cmds.extend(["Stim", f"write pin {keypad['keys'][held][1]} high"])
+            held = None
 
     def clear():
         cmds.extend(f"Delete {n}" for n in active)
@@ -109,6 +140,12 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
     for action in plan:
         if "set" in action:
             cmds.extend(f"write pin {pin} {level}" for pin, level in action["set"].items())
+        elif "press" in action:
+            let_go()
+            cmds.append(f'Stim "{Path(keypad["scl"][action["press"]]).as_posix()}"')
+            held = action["press"]
+        elif "release" in action:
+            let_go()
         elif "step" in action:
             for _ in range(action["step"]):
                 cmds += ["Step", *prints]
@@ -132,14 +169,19 @@ def trace_commands(device, elf, source_name, plan, registers, wait_ms, variables
     return cmds, kinds
 
 
-def parse_records(text, registers):
+def parse_records(text, registers, source_name=None):
     """One record per stop: source line, address, raw stopwatch reading and the register values.
+
+    A stop in another file (XC8's own routines such as awmod.c for %) keeps that file's name in 'where'
+    and no line: its line number belongs to that file, not to source_name.
 
     'timeout' marks a stop made by our Halt after a Wait ran out: mdb prints "Simulator halted" right
     after the Halt, and no "Single breakpoint" (which a breakpoint or watchpoint hit always prints).
+    'line' is None where the ELF has no line for the address (code the compiler added); whether that
+    is acceptable depends on the kind of stop, which make_steps knows.
     """
     records = []
-    values, line, addr, want = {}, None, None, None
+    values, line, addr, want, file = {}, None, None, None, None
     hit = halted = False
     prev = ""
     for raw in text.splitlines():
@@ -155,6 +197,10 @@ def parse_records(text, registers):
         if m:
             line = int(m.group(1))
             continue
+        m = re.match(r"file:\s*(.+)$", s)
+        if m:
+            file = m.group(1).strip()
+            continue
         m = re.match(r"address:\s*(0x[0-9a-fA-F]+)", s)
         if m:
             addr = m.group(1).lower()
@@ -163,13 +209,14 @@ def parse_records(text, registers):
         if m:
             missing = [r for r in registers if r not in values]
             timeout = halted and not hit
-            if line is None and not timeout:
-                raise MdbError(f"{len(records) + 1} 回目の停止で行番号が読めない（行番号の無いところで止まった）")
             if missing:
                 raise MdbError(f"{len(records) + 1} 回目の停止で値が読めないレジスタ: {missing}")
+            where = None
+            if file and source_name and Path(file.replace("\\", "/")).name.lower() != source_name.lower():
+                where, line = Path(file.replace("\\", "/")).name, None
             records.append({"line": line, "addr": addr, "reading": int(m.group(1)),
-                            "values": {r: values[r] for r in registers}, "timeout": timeout})
-            values, line, addr, want = {}, None, None, None
+                            "values": {r: values[r] for r in registers}, "timeout": timeout, "where": where})
+            values, line, addr, want, file = {}, None, None, None, None
             hit = halted = False
             continue
         m = re.fullmatch(r"(\w+)=(.*)", s)

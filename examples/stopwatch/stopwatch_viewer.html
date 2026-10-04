@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LCD に文字を出す（lcd.c）</title>
+<title>ストップウォッチ（stopwatch.c、タイマー 1 の割り込みと 7 セグメント LED）</title>
 <style>
 :root {
   color-scheme: light dark;
@@ -342,175 +342,267 @@ h1 { font-size: 20px; line-height: 1.3; margin: 0; }
   <footer class="foot"><ul id="foot"></ul></footer>
 </div>
 
-<script type="application/json" id="data">{"title":"LCD に文字を出す（lcd.c）","tool":"picviewer 0.4.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"文字表示の LCD（HD44780 互換、16 文字 2 行）を 4 ビットでつなぎ、HELLO と PIC を出す","fosc_hz":8000000,"source_name":"pic16f886/lcd.c","source":["// lcd.c  文字表示の LCD（HD44780 互換、16 文字 2 行）に 4 ビットでつないで、2 行の文字を出す","// PIC16F886  内部クロック 8 MHz  XC8","// 配線: RB0 = RS、RB1 = R/W（0 のまま）、RB2 = E、RB4-RB7 = D4-D7","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 8000000","#define LCD_RS PORTBbits.RB0","#define LCD_E  PORTBbits.RB2","","// 上位 4 ビットを D4-D7 に出して、E を 1 から 0 にする（LCD は E が下がる時に読む）","void lcd_nibble(unsigned char value)","{","    PORTB = (PORTB & 0x0F) | (value & 0xF0);","    LCD_E = 1;","    LCD_E = 0;","}","","// 1 バイトを上位、下位の順に 4 ビットずつ送る（rs が 0 ならコマンド、1 なら文字）","void lcd_byte(unsigned char rs, unsigned char value)","{","    if (rs) {","        LCD_RS = 1;","    } else {","        LCD_RS = 0;","    }","    lcd_nibble(value);","    lcd_nibble((unsigned char)(value << 4));","    __delay_ms(2);","}","","void lcd_init(void)","{","    __delay_ms(50);             // 電源が入ってから待つ","    lcd_nibble(0x30);           // 8 ビットのつもりで 3 回送る","    __delay_ms(5);","    lcd_nibble(0x30);","    __delay_ms(1);","    lcd_nibble(0x30);","    __delay_ms(1);","    lcd_nibble(0x20);           // 4 ビットに切り替える","    __delay_ms(1);","    lcd_byte(0, 0x28);          // 4 ビット、2 行","    lcd_byte(0, 0x0C);          // 表示オン、カーソルなし","    lcd_byte(0, 0x01);          // 画面を消す","    lcd_byte(0, 0x06);          // 書くたびに右へ進む","}","","void lcd_text(const char *s)","{","    while (*s) {","        lcd_byte(1, (unsigned char)*s);","        s++;","    }","}","","void main(void)","{","    OSCCON = 0b01110000;        // 内部発振器を 8 MHz に","    ANSEL  = 0b00000000;","    ANSELH = 0b00000000;","    TRISB  = 0b00000000;        // PORTB は全部 LCD への出力","    PORTB  = 0b00000000;","","    lcd_init();","    lcd_text(\"HELLO\");","    lcd_byte(0, 0xC0);          // 2 行目の先頭へ","    lcd_text(\"PIC\");","    while (1) {","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":1000,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]}],"steps":[{"kind":"start","exec":null,"next":62,"addr":"0x70e","cycles":13,"v":[96,63,255,0],"skipped_us":0},{"kind":"step","exec":62,"next":63,"addr":"0x712","cycles":17,"v":[112,63,255,0],"skipped_us":0},{"kind":"step","exec":63,"next":64,"addr":"0x715","cycles":20,"v":[112,63,255,0],"skipped_us":0},{"kind":"step","exec":64,"next":65,"addr":"0x716","cycles":21,"v":[112,0,255,0],"skipped_us":0},{"kind":"step","exec":65,"next":66,"addr":"0x719","cycles":24,"v":[112,0,0,0],"skipped_us":0},{"kind":"write","exec":66,"next":68,"addr":"0x71c","cycles":27,"v":[112,0,0,0],"watch":"PORTB","skipped_us":0},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":160,"v":[112,0,0,48],"watch":"PORTB","skipped_us":49950},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":161,"v":[112,0,0,52],"watch":"PORTB","skipped_us":49950},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":162,"v":[112,0,0,48],"watch":"PORTB","skipped_us":49950},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":205,"v":[112,0,0,48],"watch":"PORTB","skipped_us":54945},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":206,"v":[112,0,0,52],"watch":"PORTB","skipped_us":54945},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":207,"v":[112,0,0,48],"watch":"PORTB","skipped_us":54945},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":242,"v":[112,0,0,48],"watch":"PORTB","skipped_us":55944},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":243,"v":[112,0,0,52],"watch":"PORTB","skipped_us":55944},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":244,"v":[112,0,0,48],"watch":"PORTB","skipped_us":55944},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":279,"v":[112,0,0,32],"watch":"PORTB","skipped_us":56943},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":280,"v":[112,0,0,36],"watch":"PORTB","skipped_us":56943},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":281,"v":[112,0,0,32],"watch":"PORTB","skipped_us":56943},{"kind":"write","exec":28,"next":30,"addr":"0x748","cycles":318,"v":[112,0,0,32],"watch":"PORTB","skipped_us":57942},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":333,"v":[112,0,0,32],"watch":"PORTB","skipped_us":57942},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":334,"v":[112,0,0,36],"watch":"PORTB","skipped_us":57942},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":335,"v":[112,0,0,32],"watch":"PORTB","skipped_us":57942},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":375,"v":[112,0,0,128],"watch":"PORTB","skipped_us":57942},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":376,"v":[112,0,0,132],"watch":"PORTB","skipped_us":57942},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":377,"v":[112,0,0,128],"watch":"PORTB","skipped_us":57942},{"kind":"write","exec":28,"next":30,"addr":"0x748","cycles":420,"v":[112,0,0,128],"watch":"PORTB","skipped_us":59940},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":435,"v":[112,0,0,0],"watch":"PORTB","skipped_us":59940},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":436,"v":[112,0,0,4],"watch":"PORTB","skipped_us":59940},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":437,"v":[112,0,0,0],"watch":"PORTB","skipped_us":59940},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":477,"v":[112,0,0,192],"watch":"PORTB","skipped_us":59940},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":478,"v":[112,0,0,196],"watch":"PORTB","skipped_us":59940},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":479,"v":[112,0,0,192],"watch":"PORTB","skipped_us":59940},{"kind":"write","exec":28,"next":30,"addr":"0x748","cycles":522,"v":[112,0,0,192],"watch":"PORTB","skipped_us":61938},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":537,"v":[112,0,0,0],"watch":"PORTB","skipped_us":61938},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":538,"v":[112,0,0,4],"watch":"PORTB","skipped_us":61938},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":539,"v":[112,0,0,0],"watch":"PORTB","skipped_us":61938},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":579,"v":[112,0,0,16],"watch":"PORTB","skipped_us":61938},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":580,"v":[112,0,0,20],"watch":"PORTB","skipped_us":61938},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":581,"v":[112,0,0,16],"watch":"PORTB","skipped_us":61938},{"kind":"write","exec":28,"next":30,"addr":"0x748","cycles":624,"v":[112,0,0,16],"watch":"PORTB","skipped_us":63936},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":639,"v":[112,0,0,0],"watch":"PORTB","skipped_us":63936},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":640,"v":[112,0,0,4],"watch":"PORTB","skipped_us":63936},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":641,"v":[112,0,0,0],"watch":"PORTB","skipped_us":63936},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":681,"v":[112,0,0,96],"watch":"PORTB","skipped_us":63936},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":682,"v":[112,0,0,100],"watch":"PORTB","skipped_us":63936},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":683,"v":[112,0,0,96],"watch":"PORTB","skipped_us":63936},{"kind":"write","exec":26,"next":27,"addr":"0x744","cycles":774,"v":[112,0,0,97],"watch":"PORTB","skipped_us":65934},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":791,"v":[112,0,0,65],"watch":"PORTB","skipped_us":65934},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":792,"v":[112,0,0,69],"watch":"PORTB","skipped_us":65934},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":793,"v":[112,0,0,65],"watch":"PORTB","skipped_us":65934},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":833,"v":[112,0,0,129],"watch":"PORTB","skipped_us":65934},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":834,"v":[112,0,0,133],"watch":"PORTB","skipped_us":65934},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":835,"v":[112,0,0,129],"watch":"PORTB","skipped_us":65934},{"kind":"write","exec":26,"next":27,"addr":"0x744","cycles":916,"v":[112,0,0,129],"watch":"PORTB","skipped_us":67932},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":933,"v":[112,0,0,65],"watch":"PORTB","skipped_us":67932},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":934,"v":[112,0,0,69],"watch":"PORTB","skipped_us":67932},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":935,"v":[112,0,0,65],"watch":"PORTB","skipped_us":67932},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":975,"v":[112,0,0,81],"watch":"PORTB","skipped_us":67932},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":976,"v":[112,0,0,85],"watch":"PORTB","skipped_us":67932},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":977,"v":[112,0,0,81],"watch":"PORTB","skipped_us":67932},{"kind":"write","exec":26,"next":27,"addr":"0x744","cycles":1058,"v":[112,0,0,81],"watch":"PORTB","skipped_us":69930},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1075,"v":[112,0,0,65],"watch":"PORTB","skipped_us":69930},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1076,"v":[112,0,0,69],"watch":"PORTB","skipped_us":69930},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1077,"v":[112,0,0,65],"watch":"PORTB","skipped_us":69930},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1117,"v":[112,0,0,193],"watch":"PORTB","skipped_us":69930},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1118,"v":[112,0,0,197],"watch":"PORTB","skipped_us":69930},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1119,"v":[112,0,0,193],"watch":"PORTB","skipped_us":69930},{"kind":"write","exec":26,"next":27,"addr":"0x744","cycles":1200,"v":[112,0,0,193],"watch":"PORTB","skipped_us":71928},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1217,"v":[112,0,0,65],"watch":"PORTB","skipped_us":71928},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1218,"v":[112,0,0,69],"watch":"PORTB","skipped_us":71928},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1219,"v":[112,0,0,65],"watch":"PORTB","skipped_us":71928},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1259,"v":[112,0,0,193],"watch":"PORTB","skipped_us":71928},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1260,"v":[112,0,0,197],"watch":"PORTB","skipped_us":71928},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1261,"v":[112,0,0,193],"watch":"PORTB","skipped_us":71928},{"kind":"write","exec":26,"next":27,"addr":"0x744","cycles":1342,"v":[112,0,0,193],"watch":"PORTB","skipped_us":73926},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1359,"v":[112,0,0,65],"watch":"PORTB","skipped_us":73926},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1360,"v":[112,0,0,69],"watch":"PORTB","skipped_us":73926},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1361,"v":[112,0,0,65],"watch":"PORTB","skipped_us":73926},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1401,"v":[112,0,0,241],"watch":"PORTB","skipped_us":73926},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1402,"v":[112,0,0,245],"watch":"PORTB","skipped_us":73926},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1403,"v":[112,0,0,241],"watch":"PORTB","skipped_us":73926},{"kind":"write","exec":28,"next":30,"addr":"0x748","cycles":1473,"v":[112,0,0,240],"watch":"PORTB","skipped_us":75924},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1488,"v":[112,0,0,192],"watch":"PORTB","skipped_us":75924},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1489,"v":[112,0,0,196],"watch":"PORTB","skipped_us":75924},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1490,"v":[112,0,0,192],"watch":"PORTB","skipped_us":75924},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1530,"v":[112,0,0,0],"watch":"PORTB","skipped_us":75924},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1531,"v":[112,0,0,4],"watch":"PORTB","skipped_us":75924},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1532,"v":[112,0,0,0],"watch":"PORTB","skipped_us":75924},{"kind":"write","exec":26,"next":27,"addr":"0x744","cycles":1619,"v":[112,0,0,1],"watch":"PORTB","skipped_us":77922},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1636,"v":[112,0,0,81],"watch":"PORTB","skipped_us":77922},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1637,"v":[112,0,0,85],"watch":"PORTB","skipped_us":77922},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1638,"v":[112,0,0,81],"watch":"PORTB","skipped_us":77922},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1678,"v":[112,0,0,1],"watch":"PORTB","skipped_us":77922},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1679,"v":[112,0,0,5],"watch":"PORTB","skipped_us":77922},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1680,"v":[112,0,0,1],"watch":"PORTB","skipped_us":77922},{"kind":"write","exec":26,"next":27,"addr":"0x744","cycles":1761,"v":[112,0,0,1],"watch":"PORTB","skipped_us":79920},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1778,"v":[112,0,0,65],"watch":"PORTB","skipped_us":79920},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1779,"v":[112,0,0,69],"watch":"PORTB","skipped_us":79920},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1780,"v":[112,0,0,65],"watch":"PORTB","skipped_us":79920},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1820,"v":[112,0,0,145],"watch":"PORTB","skipped_us":79920},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1821,"v":[112,0,0,149],"watch":"PORTB","skipped_us":79920},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1822,"v":[112,0,0,145],"watch":"PORTB","skipped_us":79920},{"kind":"write","exec":26,"next":27,"addr":"0x744","cycles":1903,"v":[112,0,0,145],"watch":"PORTB","skipped_us":81918},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1920,"v":[112,0,0,65],"watch":"PORTB","skipped_us":81918},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1921,"v":[112,0,0,69],"watch":"PORTB","skipped_us":81918},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1922,"v":[112,0,0,65],"watch":"PORTB","skipped_us":81918},{"kind":"write","exec":17,"next":18,"addr":"0x6ed","cycles":1962,"v":[112,0,0,49],"watch":"PORTB","skipped_us":81918},{"kind":"write","exec":18,"next":19,"addr":"0x6ee","cycles":1963,"v":[112,0,0,53],"watch":"PORTB","skipped_us":81918},{"kind":"write","exec":19,"next":20,"addr":"0x6ef","cycles":1964,"v":[112,0,0,49],"watch":"PORTB","skipped_us":81918},{"kind":"end","exec":73,"next":73,"addr":"0x737","cycles":2017,"v":[112,0,0,49],"watch":"PORTB","skipped_us":83916}],"waves":[],"notes":{"62":"内部発振器を 8 MHz に設定する。","63":"PORTA 側のアナログ入力を無効にする。","64":"PORTB 側のアナログ入力を無効にする。LCD につなぐピンをデジタルで使う。","65":"PORTB を全部出力にする。LCD の RS、R/W、E、D4-D7 につながっている。","66":"PORTB を 0 にする。RS = 0、R/W = 0（書き込み）、E = 0 から始める。","17":"D4-D7 に送る 4 ビットを出す（下位の RS、R/W、E はそのまま）。","18":"E を 1 にする。","19":"E を 0 にする。LCD はこの下がる瞬間に D4-D7 を読む。","26":"RS を 1 にする（これから送るのは文字）。","28":"RS を 0 にする（これから送るのはコマンド）。","73":"文字を出し終えて、何もしないループに入った。ここで書き込みの記録を終える。"},"circuit":{"type":"lcd","port":"B","rs":0,"rw":1,"e":2,"data":"high","rows":2,"cols":16},"counters":[]}]}</script>
+<script type="application/json" id="data">{"title":"ストップウォッチ（stopwatch.c、タイマー 1 の割り込みと 7 セグメント LED）","tool":"picviewer 0.4.0","targets":[{"id":"pic16f886","device":"PIC16F886","summary":"スイッチを押すと秒を数え始め、もう一度押すと止まる。秒はタイマー 1 の割り込みで数える","fosc_hz":4000000,"source_name":"stopwatch.c","source":["// stopwatch.c  スイッチを押すたびに、計る・止めるを切り替えるストップウォッチ。経った秒（0〜9）を 7 セグメント LED に出す","// PIC16F886  内部クロック 4 MHz  XC8","// 配線: RB0 = スイッチ（押すと 0。内部プルアップ）","//       RC0-RC6 = 7 セグメント LED の a-g（カソード共通、1 で点灯）","// 時間はタイマー 1 の割り込みで数える（1 MHz の命令クロックを 1/8 にして 62500 数えると 0.5 秒）","#include <xc.h>","","#pragma config FOSC = INTRC_NOCLKOUT, WDTE = OFF, PWRTE = ON, MCLRE = OFF","#pragma config CP = OFF, CPD = OFF, BOREN = OFF, IESO = OFF, FCMEN = OFF, LVP = OFF","#pragma config BOR4V = BOR40V, WRT = OFF","","#define _XTAL_FREQ 4000000","","const unsigned char SHAPE[10] = {           // 0-9 の形（ビット 0 が a、ビット 6 が g）","    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F","};","","volatile unsigned char halves = 0;          // 計っている間に過ぎた 0.5 秒の数","volatile unsigned char running = 0;         // 1 なら計っている","","void __interrupt() tick(void)","{","    if (PIR1bits.TMR1IF) {                  // タイマー 1 があふれた（0.5 秒たった）","        PIR1bits.TMR1IF = 0;","        TMR1H = 0x0B;                       // 65536 - 62500 = 3036 = 0x0BDC から数え直す","        TMR1L = 0xDC;","        if (running) {","            halves++;","        }","    }","}","","void main(void)","{","    unsigned char shown = 0xFF, sec;","","    OSCCON = 0b01100000;                    // 内部発振器を 4 MHz に","    ANSEL  = 0b00000000;","    ANSELH = 0b00000000;                    // RB0 をデジタル入力に","    TRISB  = 0b00000001;                    // RB0 はスイッチ","    TRISC  = 0b00000000;                    // PORTC は 7 セグメント LED","    OPTION_REGbits.nRBPU = 0;               // RB0 の内部プルアップを使う","    WPUB   = 0b00000001;","    T1CON  = 0b00110001;                    // プリスケーラ 1:8、タイマー 1 を動かす","    TMR1H  = 0x0B;","    TMR1L  = 0xDC;","    PIE1bits.TMR1IE = 1;                    // タイマー 1 の割り込みを使う","    INTCONbits.PEIE = 1;","    INTCONbits.GIE = 1;                     // 割り込みを受け付ける","","    while (1) {","        if (!PORTBbits.RB0) {               // スイッチを押した","            running = !running;             // 計る・止めるを切り替える","            __delay_ms(20);","            while (!PORTBbits.RB0) {        // 離されるまで待つ","            }","            __delay_ms(20);","        }","        sec = (unsigned char)((halves / 2) % 10);","        if (sec != shown) {                 // 秒が変わった時だけ書き直す","            shown = sec;","            PORTC = SHAPE[sec];","        }","    }","}"],"pack":{"name":"PIC16Fxxx_DFP","version":"1.8.167"},"tools":{"mplabx":"v6.35","xc8":"v3.00"},"traced":"2026-10-04","fast_forward":null,"vdd":5.0,"pins":[["RE3","MCLR","Vpp"],["RA0","AN0","ULPWU","C12IN0-"],["RA1","AN1","C12IN1-"],["RA2","AN2","Vref-","CVref","C2IN+"],["RA3","AN3","Vref+","C1IN+"],["RA4","T0CKI","C1OUT"],["RA5","AN4","SS","C2OUT"],["Vss"],["RA7","OSC1","CLKI"],["RA6","OSC2","CLKO"],["RC0","T1OSO","T1CKI"],["RC1","T1OSI","CCP2"],["RC2","P1A","CCP1"],["RC3","SCK","SCL"],["RC4","SDI","SDA"],["RC5","SDO"],["RC6","TX","CK"],["RC7","RX","DT"],["Vss"],["Vdd"],["RB0","AN12","INT"],["RB1","AN10","P1C","C12IN3-"],["RB2","AN8","P1B"],["RB3","AN9","PGM","C12IN2-"],["RB4","AN11","P1D"],["RB5","AN13","T1G"],["RB6","ICSPCLK"],["RB7","ICSPDAT"]],"regs":[{"name":"OSCCON","mask":127,"bits":["SCS","LTS","HTS","OSTS","IRCF0","IRCF1","IRCF2",null]},{"name":"ANSELH","mask":63,"bits":["ANS8","ANS9","ANS10","ANS11","ANS12","ANS13",null,null]},{"name":"TRISB","mask":255,"bits":["TRISB0","TRISB1","TRISB2","TRISB3","TRISB4","TRISB5","TRISB6","TRISB7"]},{"name":"TRISC","mask":255,"bits":["TRISC0","TRISC1","TRISC2","TRISC3","TRISC4","TRISC5","TRISC6","TRISC7"]},{"name":"OPTION_REG","mask":255,"bits":["PS0","PS1","PS2","PSA","T0SE","T0CS","INTEDG","nRBPU"]},{"name":"WPUB","mask":255,"bits":["WPUB0","WPUB1","WPUB2","WPUB3","WPUB4","WPUB5","WPUB6","WPUB7"]},{"name":"T1CON","mask":255,"bits":["TMR1ON","TMR1CS","nT1SYNC","T1OSCEN","T1CKPS0","T1CKPS1","TMR1GE","T1GINV"]},{"name":"TMR1H","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"TMR1L","mask":255,"bits":[null,null,null,null,null,null,null,null]},{"name":"PIE1","mask":127,"bits":["TMR1IE","TMR2IE","CCP1IE","SSPIE","TXIE","RCIE","ADIE",null]},{"name":"PIR1","mask":127,"bits":["TMR1IF","TMR2IF","CCP1IF","SSPIF","TXIF","RCIF","ADIF",null]},{"name":"INTCON","mask":255,"bits":["RBIF","INTF","T0IF","RBIE","INTE","T0IE","PEIE","GIE"]},{"name":"PORTB","mask":255,"bits":["RB0","RB1","RB2","RB3","RB4","RB5","RB6","RB7"]},{"name":"PORTC","mask":255,"bits":["RC0","RC1","RC2","RC3","RC4","RC5","RC6","RC7"]}],"steps":[{"kind":"start","exec":null,"next":35,"addr":"0x17","cycles":17,"v":[96,63,255,255,255,255,0,0,0,0,0,2,1,0],"inputs":{"RB0":"high"},"input_note":"スイッチは離してある"},{"kind":"step","exec":35,"next":37,"addr":"0x1b","cycles":21,"v":[96,63,255,255,255,255,0,0,0,0,0,2,1,0]},{"kind":"step","exec":37,"next":38,"addr":"0x1f","cycles":25,"v":[96,63,255,255,255,255,0,0,0,0,0,2,1,0]},{"kind":"step","exec":38,"next":39,"addr":"0x22","cycles":28,"v":[96,63,255,255,255,255,0,0,0,0,0,2,1,0]},{"kind":"step","exec":39,"next":40,"addr":"0x23","cycles":29,"v":[96,0,255,255,255,255,0,0,0,0,0,2,1,0]},{"kind":"step","exec":40,"next":41,"addr":"0x27","cycles":33,"v":[96,0,1,255,255,255,0,0,0,0,0,2,1,0]},{"kind":"step","exec":41,"next":42,"addr":"0x28","cycles":34,"v":[96,0,1,0,255,255,0,0,0,0,0,2,1,0]},{"kind":"step","exec":42,"next":43,"addr":"0x29","cycles":35,"v":[96,0,1,0,127,255,0,0,0,0,0,2,1,0]},{"kind":"step","exec":43,"next":44,"addr":"0x2b","cycles":37,"v":[96,0,1,0,127,1,0,0,0,0,0,2,1,0]},{"kind":"step","exec":44,"next":45,"addr":"0x2f","cycles":41,"v":[96,0,1,0,127,1,49,0,0,0,0,2,1,0]},{"kind":"step","exec":45,"next":46,"addr":"0x31","cycles":43,"v":[96,0,1,0,127,1,49,11,0,0,0,2,1,0]},{"kind":"step","exec":46,"next":47,"addr":"0x33","cycles":45,"v":[96,0,1,0,127,1,49,11,220,0,0,2,1,0]},{"kind":"step","exec":47,"next":48,"addr":"0x36","cycles":48,"v":[96,0,1,0,127,1,49,11,220,1,0,2,1,0]},{"kind":"step","exec":48,"next":49,"addr":"0x37","cycles":49,"v":[96,0,1,0,127,1,49,11,220,1,0,66,1,0]},{"kind":"step","exec":49,"next":52,"addr":"0x38","cycles":50,"v":[96,0,1,0,127,1,49,11,220,1,0,194,1,0]},{"kind":"write","exec":62,"next":62,"addr":"0x97","cycles":1350,"v":[96,0,1,0,127,1,49,12,127,1,0,194,1,63],"watch":"PORTC"},{"kind":"timeout","exec":null,"next":null,"addr":"0xe2","cycles":3251727,"v":[96,0,1,0,127,1,49,134,174,1,0,194,1,63],"where":"awdiv.c","watch":"PORTC"},{"kind":"run","exec":55,"next":56,"addr":"0x50","cycles":3272754,"v":[96,0,1,0,127,1,49,144,243,1,0,194,0,63],"inputs":{"RB0":"low"},"input_note":"スイッチを押す（計り始める）"},{"kind":"write","exec":62,"next":62,"addr":"0x97","cycles":4002526,"v":[96,0,1,0,127,1,49,12,251,1,0,194,1,6],"watch":"PORTC","inputs":{"RB0":"high"},"input_note":"スイッチを離す"},{"kind":"write","exec":62,"next":62,"addr":"0x97","cycles":5002619,"v":[96,0,1,0,127,1,49,13,0,1,0,194,1,91],"watch":"PORTC"},{"kind":"write","exec":62,"next":62,"addr":"0x97","cycles":6002718,"v":[96,0,1,0,127,1,49,13,7,1,0,194,1,79],"watch":"PORTC"},{"kind":"write","exec":62,"next":62,"addr":"0x97","cycles":7002296,"v":[96,0,1,0,127,1,49,12,205,1,0,194,1,102],"watch":"PORTC"},{"kind":"write","exec":62,"next":62,"addr":"0x97","cycles":8002395,"v":[96,0,1,0,127,1,49,12,211,1,0,194,1,109],"watch":"PORTC"},{"kind":"run","exec":55,"next":56,"addr":"0x50","cycles":8022409,"v":[96,0,1,0,127,1,49,22,153,1,0,194,0,109],"inputs":{"RB0":"low"},"input_note":"もう一度押す（止める）"},{"kind":"timeout","exec":null,"next":null,"addr":"0xcc","cycles":16754419,"v":[96,0,1,0,127,1,49,135,177,1,0,194,1,109],"where":"awdiv.c","watch":"PORTC","inputs":{"RB0":"high"},"input_note":"スイッチを離す"}],"waves":[],"notes":{"23":"割り込み: タイマー 1 があふれた（0.5 秒たった）。","24":"割り込みの印（TMR1IF）を消す。","25":"タイマー 1 を 3036 から数え直す（あと 62500 数えると 0.5 秒）。","28":"計っている間だけ、0.5 秒の数を 1 つ増やす。","44":"タイマー 1 を動かす。命令クロック 1 MHz を 1/8 にして数える。","47":"タイマー 1 があふれたら割り込みにする。","49":"割り込みを受け付ける（GIE = 1）。ここから先、0.5 秒ごとに割り込みが入る。","52":"スイッチを押したか調べる（押すと RB0 が 0）。","53":"計る・止めるを切り替える。","55":"スイッチが離されるまで、ここで待つ（ループの条件を調べる命令は、閉じかっこの 56 行目に付いている）。","59":"0.5 秒の数を 2 で割って、秒にする。","62":"秒が変わったので、7 セグメント LED の形を出す。"},"circuit":[{"type":"seg7","port":"C"},{"type":"leds","port":"B","bits":[],"switches":[{"pin":"RB0","active":"low","label":"SW"}]}],"counters":["TMR1H","TMR1L"]}]}</script>
 <script>
 window.PicViewer = { circuits: {}, util: {} };
-/* lcd: a character LCD (HD44780 or compatible) on a 4-bit bus.
-   Replays every value the port held up to this step, latches a nibble on each falling edge of E,
-   and runs the controller's commands to draw the screen. Every write to the port must be a stop
-   (use {"until_write": "PORTB", ...} in the trace), or edges are missed. */
+/* seg7: a one-digit 7-segment LED on a port. By default bit 0 is segment a ... bit 6 is g, bit 7 is dp,
+   common cathode (a 1 lights the segment). */
 (() => {
   'use strict';
 
-  const ROW_START = [0x00, 0x40, 0x14, 0x54];
+  const NAMES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'];
+  // the usual a..g shapes of hexadecimal digits (bit 0 = a)
+  const DIGITS = { 0x3f: '0', 0x06: '1', 0x5b: '2', 0x4f: '3', 0x66: '4', 0x6d: '5', 0x7d: '6', 0x07: '7', 0x27: '7',
+    0x7f: '8', 0x6f: '9', 0x67: '9', 0x77: 'A', 0x7c: 'b', 0x39: 'C', 0x58: 'c', 0x5e: 'd', 0x79: 'E', 0x71: 'F', 0x00: '（消灯）' };
+
+  // segment outlines in a 120 x 220 box at (70, 40)
+  const X = 70, Y = 40, W = 120, H = 220, T = 18;
+  const hseg = (y) => `M${X + 12} ${y} L${X + 22} ${y - T / 2} H${X + W - 22} L${X + W - 12} ${y} L${X + W - 22} ${y + T / 2} H${X + 22} Z`;
+  const vseg = (x, y0, y1) => `M${x} ${y0 + 12} L${x + T / 2} ${y0 + 22} V${y1 - 22} L${x} ${y1 - 12} L${x - T / 2} ${y1 - 22} V${y0 + 22} Z`;
+  const SHAPES = {
+    a: hseg(Y), g: hseg(Y + H / 2), d: hseg(Y + H),
+    f: vseg(X, Y, Y + H / 2), b: vseg(X + W, Y, Y + H / 2), e: vseg(X, Y + H / 2, Y + H), c: vseg(X + W, Y + H / 2, Y + H),
+  };
 
   function settings(cfg) {
-    return {
-      port: String(cfg.port || 'B').toUpperCase(),
-      rs: cfg.rs === undefined ? 0 : cfg.rs,
-      rw: cfg.rw === undefined ? 1 : cfg.rw,      // null: R/W is tied to GND (the program only writes)
-      e: cfg.e === undefined ? 2 : cfg.e,
-      high: cfg.data !== 'low',
-      rows: cfg.rows || 2,
-      cols: cfg.cols || 16,
-    };
+    const order = Array.isArray(cfg.segments) && cfg.segments.length === 8 ? cfg.segments.map(String) : NAMES;
+    return { port: String(cfg.port || 'C').toUpperCase(), order, anode: cfg.common === 'anode' };
   }
 
-  function command(s, byte) {
-    if (byte & 0x80) { s.addr = byte & 0x7f; s.cgram = false; return `DDRAM のアドレスを 0x${(byte & 0x7f).toString(16).padStart(2, '0')} にする（文字を書く位置）`; }
-    if (byte & 0x40) { s.cgram = true; return 'CGRAM のアドレスを決める（自作の文字）'; }
-    if (byte & 0x20) {
-      s.mode8 = Boolean(byte & 0x10);
-      s.lines = byte & 0x08 ? 2 : 1;
-      return `機能の設定: ${s.mode8 ? '8' : '4'} ビット、${s.lines} 行`;
-    }
-    if (byte & 0x10) {
-      if (!(byte & 0x08)) s.addr = (s.addr + (byte & 0x04 ? 1 : 127)) & 0x7f;
-      return byte & 0x08 ? '表示をずらす' : 'カーソルを動かす';
-    }
-    if (byte & 0x08) {
-      s.display = Boolean(byte & 0x04); s.cursor = Boolean(byte & 0x02); s.blink = Boolean(byte & 0x01);
-      return `表示 ${s.display ? 'オン' : 'オフ'}、カーソル ${s.cursor ? 'あり' : 'なし'}、点滅 ${s.blink ? 'あり' : 'なし'}`;
-    }
-    if (byte & 0x04) { s.inc = Boolean(byte & 0x02); return `書くたびにカーソルを${s.inc ? '右' : '左'}へ`; }
-    if (byte & 0x02) { s.addr = 0; return 'カーソルを先頭へ'; }
-    if (byte & 0x01) { s.ram.fill(0x20); s.addr = 0; s.inc = true; return '画面を消す'; }
-    return '何もしない命令';
-  }
-
-  function data(s, byte) {
-    if (s.cgram) return `CGRAM にデータ 0x${byte.toString(16).padStart(2, '0')} を書く`;
-    s.ram[s.addr] = byte;
-    const where = s.addr;
-    s.addr = (s.addr + (s.inc ? 1 : 127)) & 0x7f;
-    const ch = byte >= 0x20 && byte < 0x7f ? `'${String.fromCharCode(byte)}'` : '記号';
-    return `文字 ${ch}（0x${byte.toString(16).padStart(2, '0')}）を DDRAM の 0x${where.toString(16).padStart(2, '0')} に書く`;
-  }
-
-  // the controller after the port values of steps 0..k; 'last' describes what step k did on the bus
-  function replay(ctx, c) {
-    const { t, k, U } = ctx;
-    const s = { mode8: true, half: null, ram: new Array(128).fill(0x20), addr: 0, inc: true, cgram: false,
-      display: false, cursor: false, blink: false, lines: 1, log: [], last: '' };
-    let prevE = 0;
-    let prevVal = null;
-    for (let i = 0; i <= k; i++) {
-      const R = ctx.regsAt(t.steps[i]);
-      const val = U.latchOf(R, c.port);
-      if (val === undefined) return null;
-      const e = (val >> c.e) & 1;
-      const rs = (val >> c.rs) & 1;
-      const nib = c.high ? (val >> 4) & 0x0f : val & 0x0f;
-      let what = '';
-      if (prevE === 1 && e === 0) {
-        if (s.mode8) {                       // 8-bit interface on a 4-bit bus: the low half reads as 0
-          what = `E が下がった。LCD は 8 ビットのつもりで 0x${(nib << 4).toString(16)} を読んだ: ` + (rs ? data(s, nib << 4) : command(s, nib << 4));
-        } else if (s.half === null) {
-          s.half = nib;
-          what = `E が下がった。上位 4 ビット 0x${nib.toString(16)} を読んだ（${rs ? '文字' : 'コマンド'}の前半）`;
-        } else {
-          const byte = (s.half << 4) | nib;
-          s.half = null;
-          what = `E が下がった。下位 4 ビット 0x${nib.toString(16)} を読み、1 バイト 0x${byte.toString(16).padStart(2, '0')} がそろった: ` + (rs ? data(s, byte) : command(s, byte));
-        }
-        s.log.push({ i, text: what });
-      } else if (prevE === 0 && e === 1) {
-        what = 'E を 1 にした。次に 0 に下げた時に、LCD がデータ線を読む';
-      } else if (prevVal !== null && val !== prevVal) {
-        const parts = [];
-        if (((val ^ prevVal) >> c.rs) & 1) parts.push(`RS を ${rs} にした（${rs ? '文字' : 'コマンド'}を送る）`);
-        const mask = c.high ? 0xf0 : 0x0f;
-        if ((val ^ prevVal) & mask) parts.push(`データ線 D7-D4 に 0x${nib.toString(16)} を出した`);
-        what = parts.join('、');
-      }
-      if (i === k) s.last = what;
-      prevE = e;
-      prevVal = val;
-    }
-    return s;
-  }
-
-  window.PicViewer.circuits.lcd = {
-    title: 'LCD',
+  window.PicViewer.circuits.seg7 = {
+    title: '7 セグメント LED',
     options: [],
     setup(ctx) {
       const { t, cfg, box, U } = ctx;
       const c = settings(cfg);
-      const screen = U.el('div', 'lcd');
-      for (let r = 0; r < c.rows; r++) {
-        const row = U.el('div', 'row');
-        for (let col = 0; col < c.cols; col++) row.append(U.el('span', 'ch', ' '));
-        screen.append(row);
+      const svg = U.svgEl('svg', { id: 'cir', viewBox: '0 0 560 320', role: 'img', 'aria-label': '7 セグメント LED' });
+      const add = (tag, attrs, text) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; svg.append(e); return e; };
+      add('rect', { class: 'body', x: 40, y: 14, width: 190, height: 290, rx: 14 });
+      Object.entries(SHAPES).forEach(([name, d]) => add('path', { class: 'seg', 'data-seg': name, d }));
+      add('circle', { class: 'seg', 'data-seg': 'dp', cx: X + W + 26, cy: Y + H + 4, r: 10 });
+      Object.entries({ a: [X + W / 2, Y - 14], b: [X + W + 18, Y + 60], c: [X + W + 18, Y + 170], d: [X + W / 2, Y + H + 32],
+        e: [X - 26, Y + 170], f: [X - 26, Y + 60], g: [X + W / 2, Y + H / 2 - 14] }).forEach(([n, [x, y]]) =>
+        add('text', { class: 'dim small', x, y, 'text-anchor': 'middle' }, n));
+      // the bit table: pin, pin number, segment, value
+      add('text', { class: 'small dim', x: 270, y: 38 }, `${t.device}  PORT${c.port}`);
+      for (let b = 0; b < 8; b++) {
+        const y = 66 + b * 30;
+        const pin = `R${c.port}${b}`;
+        add('text', { class: 'small', x: 270, y }, pin);
+        add('text', { class: 'small dim', x: 320, y }, `${U.pinsWith(t, pin).join('、')} 番`);
+        add('text', { class: 'small', x: 390, y }, c.order[b]);
+        add('text', { class: 'small', x: 440, y, 'data-bitval': String(b) }, '0');
       }
-      const bus = U.el('div', 'bus');
-      const lines = [['RS', c.rs], ...(c.rw === null ? [] : [['R/W', c.rw]]), ['E', c.e]];
-      (c.high ? [7, 6, 5, 4] : [3, 2, 1, 0]).forEach((b, j) => lines.push([`D${7 - j}`, b]));
-      lines.forEach(([label, bit]) => {
-        const cell = U.el('span', 'line');
-        cell.dataset.bit = String(bit);
-        cell.append(U.el('b', '', label), U.el('span', 'bit', '0'), U.el('small', '', `R${c.port}${bit}`));
-        bus.append(cell);
-      });
-      const log = U.el('ol', 'lcdlog');
-      box.append(screen, bus, log);
-      const pins = (b) => U.pinsWith(t, `R${c.port}${b}`).join('、');
+      box.append(svg);
       return {
-        sub: `${c.cols} 文字 ${c.rows} 行、4 ビット接続（RS = R${c.port}${c.rs}、E = R${c.port}${c.e}、D4-D7 = R${c.port}${c.high ? '4-7' : '0-3'}${c.rw === null ? '、R/W は GND' : ''}）`,
-        assume: `LCD の中身は、${t.source_name} がポートに書いた値を最初から順にたどり、E が 1 から 0 に下がるたびに 4 ビットを読んで HD44780 の命令として解いたもの。RS は ${pins(c.rs)} 番ピン、E は ${pins(c.e)} 番ピン。`,
-        regHint: `太い枠のビットが LCD につないだピン（RS、${c.rw === null ? '' : 'R/W、'}E、データ線）。`,
-        marks: [c.rs, c.rw, c.e, ...(c.high ? [4, 5, 6, 7] : [0, 1, 2, 3])].filter((b) => b !== null)
-          .flatMap((b) => ['PORT', 'LAT'].map((p) => ({ reg: p + c.port, bit: b }))),
-        foot: ['LCD の画面は、シミュレータが読んだポートの値から、このページの中で HD44780 の動きをまねて描いたもの（LCD 自体はシミュレータに無い）。書き込みを全部止めて記録していないと、E の変わり目を見落とす。'],
+        sub: `共通${c.anode ? 'アノード（0 で点灯）' : 'カソード（1 で点灯）'}、PORT${c.port} のビット 0 から ${c.order.join('、')}`,
+        assume: '区画とビットの対応、共通端子の向きは仮定。実際の基板に合わせて circuit の値を直す。',
+        regHint: `太い枠のビットが 7 セグにつないだ PORT${c.port}。`,
+        marks: Array.from({ length: 8 }, (_, b) => [{ reg: 'PORT' + c.port, bit: b }, { reg: 'LAT' + c.port, bit: b }]).flat(),
+        foot: ['7 セグの区画は、ポートのビットから決めて描いたもの（表示器はシミュレータに無い）。'],
       };
     },
     update(ctx) {
-      const { cfg, box, R, U } = ctx;
+      const { cfg, box, R, U, inputs } = ctx;
       const c = settings(cfg);
-      const val = U.latchOf(R, c.port);
-      if (val === undefined) return { text: `PORT${c.port}（または LAT${c.port}）を registers に入れると LCD が描ける。` };
-      const s = replay(ctx, c);
-      const screen = box.querySelector('.lcd');
-      screen.classList.toggle('off', !s.display);
-      const text = [];
-      screen.querySelectorAll('.row').forEach((row, r) => {
-        let line = '';
-        row.querySelectorAll('.ch').forEach((cell, col) => {
-          const a = (ROW_START[r] + col) & 0x7f;
-          const code = s.ram[a];
-          const ch = code >= 0x20 && code < 0x7f ? String.fromCharCode(code) : ' ';
-          cell.textContent = s.display ? ch : ' ';
-          cell.classList.toggle('cur', s.display && s.cursor && a === s.addr);
-          line += ch;
-        });
-        text.push(line.replace(/\s+$/, ''));
-      });
-      box.querySelectorAll('.bus .line').forEach((cell) => {
-        const one = (val >> Number(cell.dataset.bit)) & 1;
-        const bit = cell.querySelector('.bit');
-        bit.textContent = String(one);
-        bit.classList.toggle('one', one === 1);
-      });
-      const log = box.querySelector('.lcdlog');
-      log.replaceChildren(...s.log.slice(-5).map((e) => U.el('li', e.i === ctx.k ? 'now' : '', e.text)));
+      const svg = box.querySelector('#cir');
+      const latch = U.latchOf(R, c.port);
+      const tris = R['TRIS' + c.port];
+      if (!svg || latch === undefined) return { text: `PORT${c.port}（または LAT${c.port}）を registers に入れると 7 セグが描ける。` };
+      const lit = [];
+      let shape = 0;
+      for (let b = 0; b < 8; b++) {
+        const level = (latch >> b) & 1;
+        const out = tris === undefined || ((tris >> b) & 1) === 0;
+        const on = out && level === (c.anode ? 0 : 1);
+        const name = c.order[b];
+        svg.querySelectorAll(`[data-seg="${name}"]`).forEach((s) => s.classList.toggle('on', on));
+        const cell = svg.querySelector(`[data-bitval="${b}"]`);
+        cell.textContent = String(level);
+        cell.setAttribute('class', on ? 'small em' : 'small');
+        if (on) {
+          lit.push(name);
+          const k = NAMES.indexOf(name);
+          if (k >= 0 && k < 7) shape |= 1 << k;
+        }
+      }
+      const digit = DIGITS[shape];
+      const status = [
+        { label: `PORT${c.port}`, value: `${U.hex(latch)}`, tone: lit.length ? 'on' : '' },
+        { label: '点いている区画', value: lit.join(' ') || 'なし', tone: lit.length ? 'on' : '' },
+        { label: '読める形', value: digit || '数字の形ではない' },
+      ];
+      // switches are not drawn here; their state is read from PORT like on the LED view
+      const sw = U.switchStates(cfg, R, inputs).filter((s) => s.down !== null);
+      const pressed = sw.filter((s) => s.down).map((s) => s.label);
+      if (sw.length) status.push({ label: '押しているスイッチ', value: pressed.join('、') || 'なし', tone: pressed.length ? 'on' : '' });
       return {
-        status: [
-          { label: 'つなぎ方', value: s.mode8 ? '8 ビットのつもり' : '4 ビット' },
-          { label: '送る中', value: s.half === null ? '-' : `上位 0x${s.half.toString(16)} だけ受けた`, tone: s.half === null ? '' : 'on' },
-          { label: '表示', value: s.display ? 'オン' : 'オフ', tone: s.display ? 'on' : '' },
-          { label: '次に書く位置', value: `0x${s.addr.toString(16).padStart(2, '0')}` },
-        ],
-        text: s.last ? `このステップ: ${s.last}。` : 'このステップでは LCD への線は変わらない。',
-        probe: { mode: s.mode8 ? 8 : 4, display: s.display, lines: text },
+        status,
+        text: (lit.length ? `点いている区画: ${lit.join('、')}。${digit && digit !== '（消灯）' ? `数字の ${digit} の形。` : ''}` : '全部消えている。')
+          + (sw.length ? (pressed.length ? `押しているスイッチ: ${pressed.join('、')}。` : 'スイッチはどれも離してある。') : '')
+          + U.mismatchText(sw),
+        probe: { lit: lit.join(''), digit: digit || null, pressed: sw.length ? pressed : null },
+      };
+    },
+  };
+})();
+
+/* leds: push switches on input pins and one LED (with its resistor) on each pin of a port.
+   Each switch is either to the supply with a pull-down (active "high": pressed reads 1)
+   or to GND with a pull-up (active "low": pressed reads 0). */
+(() => {
+  'use strict';
+
+  const X0 = 70;         // x of the first column
+  const SW_DX = 74;      // width of a switch column
+  const LED_DX = 62;     // width of an LED column
+  const RAIL = 300;      // y of the GND rail
+  const NODE = 172;      // y where a switch, its resistor and the pin meet
+
+  function ledColumns(t, cfg) {
+    const port = String(cfg.port || 'C').toUpperCase();
+    if (Array.isArray(cfg.bits)) return { port, bits: cfg.bits.map(Number) };     // [] draws the switches only
+    const tris = t.regs.find((r) => r.name === 'TRIS' + port);
+    const bits = [];
+    for (let b = 7; b >= 0; b--) if (!tris || (tris.mask >> b) & 1) bits.push(b);
+    return { port, bits };
+  }
+
+  function layout(t, cfg, U) {
+    const { port, bits } = ledColumns(t, cfg);
+    const sws = U.switchStates(cfg, {});
+    const ledStart = X0 + sws.length * SW_DX + (sws.length ? 16 : 0);
+    const right = ledStart + (bits.length - 1) * LED_DX + 40;
+    return { port, bits, sws, ledStart, right };
+  }
+
+  function drawing(t, cfg, U) {
+    const L = layout(t, cfg, U);
+    const high = cfg.active !== 'low';
+    const vdd = `+${t.vdd || 5}V`;
+    const narrow = !L.bits.length;          // switches only: draw it small instead of across the panel
+    const svg = U.svgEl('svg', { id: 'cir', ...(narrow ? { class: 'narrow' } : {}),
+      viewBox: `0 0 ${narrow ? L.right + 20 : Math.max(L.right + 40, 560)} 340`, role: 'img',
+      'aria-label': narrow ? 'スイッチの回路' : `PORT${L.port} の LED とスイッチの回路` });
+    const add = (tag, attrs, text, parent = svg) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; parent.append(e); return e; };
+    const defs = U.svgEl('defs');
+    defs.append(U.svgEl('path', { id: 'ah', d: 'M-6 -6.5 L7 0 L-6 6.5 Z' }));
+    svg.append(defs);
+    const wires = add('g', { class: 'wire' });
+    const wire = (d) => wires.append(U.svgEl('path', { d }));
+    add('g', { id: 'gCur' });
+    add('rect', { class: 'body', x: X0 - 45, y: 20, width: L.right - X0 + 45, height: 72, rx: 6 });
+    add('text', { x: X0 - 37, y: 40, class: 'small', 'font-weight': '700' }, t.device);
+    const pinLabel = (x, name) => {
+      add('text', { class: 'small', x, y: 66, 'text-anchor': 'middle' }, name);
+      add('text', { class: 'dim small', x, y: 84, 'text-anchor': 'middle' }, `${U.pinsWith(t, name).join('、')} 番`);
+      add('circle', { class: 'dot', cx: x, cy: 92, r: 4 });
+    };
+    wire(`M${X0 - 30} ${RAIL} H${L.right}`);
+    add('text', { class: 'dim small', x: narrow ? X0 - 30 : L.right - 120, y: RAIL + 24 }, narrow ? 'GND' : 'GND (0 V) の線');
+    L.sws.forEach((s, k) => {
+      const x = X0 + k * SW_DX;
+      pinLabel(x, s.pin);
+      add('circle', { class: 'dot', cx: x, cy: NODE, r: 4 });
+      const g = add('g', { class: 'sw', 'data-pin': s.pin });
+      if (s.low) {
+        // pull-up to the supply on the right, switch down to GND
+        wire(`M${x} 92 V${NODE} H${x + 22} V158 M${x + 22} 114 V108 M${x} ${NODE} V198 M${x} 230 V${RAIL}`);
+        add('rect', { class: 'comp', x: x + 15, y: 114, width: 14, height: 44, rx: 2 });
+        add('text', { class: 'dim small', x: x + 22, y: 104, 'text-anchor': 'middle' }, vdd);
+        g.append(U.svgEl('line', { class: 'lever', x1: x, y1: 230, x2: x, y2: 198, style: `transform-origin:${x}px 230px` }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x, cy: 198, r: 3.5 }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x, cy: 230, r: 3.5 }));
+        add('text', { class: 'small', x: x + 10, y: 250 }, s.label);
+      } else {
+        // switch up to the supply on the right, pull-down to GND
+        wire(`M${x} 92 V${NODE} H${x + 22} V150 M${x + 22} 118 V108 M${x} ${NODE} V196 M${x} 240 V${RAIL}`);
+        add('text', { class: 'dim small', x: x + 22, y: 104, 'text-anchor': 'middle' }, vdd);
+        g.append(U.svgEl('line', { class: 'lever', x1: x + 22, y1: 150, x2: x + 22, y2: 118, style: `transform-origin:${x + 22}px 150px` }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x + 22, cy: 118, r: 3.5 }));
+        g.append(U.svgEl('circle', { class: 'dot', cx: x + 22, cy: 150, r: 3.5 }));
+        add('rect', { class: 'comp', x: x - 7, y: 196, width: 14, height: 44, rx: 2 });
+        add('text', { class: 'small', x: x + 30, y: 140 }, s.label);
+      }
+    });
+    L.bits.forEach((b, i) => {
+      const cx = L.ledStart + i * LED_DX;
+      pinLabel(cx, `R${L.port}${b}`);
+      wire(`M${cx} 92 V118 M${cx} 162 V188 M${cx} 216 V${RAIL}`);
+      add('rect', { class: 'comp', x: cx - 8, y: 118, width: 16, height: 44, rx: 2 });
+      const g = add('g', { class: 'ledg', 'data-bit': String(b) });
+      add('circle', { class: 'halo', cx, cy: 202, r: 20 }, undefined, g);
+      add('path', { class: 'led-body', d: high ? `M${cx - 13} 190 H${cx + 13} L${cx} 212 Z` : `M${cx - 13} 214 H${cx + 13} L${cx} 192 Z` }, undefined, g);
+      add('line', { class: 'led-bar', x1: cx - 13, x2: cx + 13, y1: high ? 214 : 190, y2: high ? 214 : 190 }, undefined, g);
+    });
+    if (L.bits.length) add('text', { class: 'dim small', x: L.ledStart - 20, y: RAIL + 24 }, `各 LED に抵抗 ${cfg.r_ohm || 330} Ω`);
+    return svg;
+  }
+
+  window.PicViewer.circuits.leds = {
+    title: '回路と電流',
+    options: [],
+    setup(ctx) {
+      const { t, cfg, box, U } = ctx;
+      const L = layout(t, cfg, U);
+      box.append(drawing(t, cfg, U));
+      const high = cfg.active !== 'low';
+      const marks = L.bits.flatMap((b) => ['TRIS', 'PORT', 'LAT'].map((p) => ({ reg: p + L.port, bit: b })));
+      L.sws.forEach((s) => { const pb = U.portBit(s.pin); marks.push({ reg: 'PORT' + pb.port, bit: pb.bit }); });
+      const swText = L.sws.length
+        ? `スイッチ: ${L.sws.map((s) => `${s.label}（${s.pin}、押すと ${s.low ? '0' : '1'}）`).join('、')}。`
+        : '';
+      if (!L.bits.length) {
+        return { sub: 'スイッチのつなぎ方は仮定', assume: swText, regHint: '太い枠のビットがスイッチのピン。', marks,
+          foot: ['スイッチのつなぎ方は仮定。シミュレータはプルアップを持たないので、離したスイッチの値も trace の set で入れる。'] };
+      }
+      return {
+        sub: 'LED と抵抗とスイッチのつなぎ方は仮定',
+        assume: `LED は ${high ? 'ピンが 1 のとき（ピンから抵抗、LED を通って GND へ）' : 'ピンが 0 のとき（電源から LED、抵抗を通ってピンへ）'}点灯する。${swText}`,
+        regHint: `太い枠のビットが LED${L.sws.length ? 'とスイッチ' : ''}のピン。`,
+        marks,
+        foot: ['LED、抵抗、スイッチのつなぎ方は仮定。実際の基板に合わせて circuit の値を直す。シミュレータはプルアップを持たないので、離したスイッチの値も trace の set で入れる。'],
+      };
+    },
+    update(ctx) {
+      const { t, cfg, box, R, U, inputs } = ctx;
+      const svg = box.querySelector('#cir');
+      if (!svg) return {};
+      const L = layout(t, cfg, U);
+      const high = cfg.active !== 'low';
+      const latch = U.latchOf(R, L.port);
+      const tris = R['TRIS' + L.port];
+      if (L.bits.length && (latch === undefined || tris === undefined)) {
+        return { text: `TRIS${L.port} と PORT${L.port}（または LAT${L.port}）を registers に入れると LED が描ける。` };
+      }
+      const g = svg.querySelector('#gCur');
+      g.replaceChildren();
+      const lit = [];
+      L.bits.forEach((b, i) => {
+        const on = ((tris >> b) & 1) === 0 && ((latch >> b) & 1) === (high ? 1 : 0);
+        svg.querySelector(`.ledg[data-bit="${b}"]`).classList.toggle('lit', on);
+        if (on) {
+          lit.push(`R${L.port}${b}`);
+          const cx = L.ledStart + i * LED_DX;
+          U.drawPath(g, [[cx, 92], [cx, RAIL]], '', { arrows: high ? [[cx, 174, 90], [cx, 258, 90]] : [[cx, 174, -90], [cx, 258, -90]] });
+        }
+      });
+      const sw = U.switchStates(cfg, R, inputs).filter((s) => s.down !== null);
+      sw.forEach((s) => svg.querySelector(`.sw[data-pin="${s.pin}"]`).classList.toggle('on', s.down));
+      const pressedNames = sw.filter((s) => s.down).map((s) => s.label);
+      const known = sw.length;
+      const pattern = L.bits.reduce((acc, b) => acc + (((latch >> b) & 1) ? '1' : '0'), '');
+      const status = L.bits.length ? [
+        { label: `PORT${L.port} の出力`, value: `${U.hex(latch)}（${pattern}）`, tone: lit.length ? 'on' : '' },
+        { label: '点灯', value: `${lit.length} 個`, tone: lit.length ? 'on' : '' },
+      ] : [];
+      if (known) status.push({ label: '押しているスイッチ', value: pressedNames.join('、') || 'なし', tone: pressedNames.length ? 'on' : '' });
+      const swText = !known ? '' : pressedNames.length ? `押しているスイッチ: ${pressedNames.join('、')}。` : 'スイッチはどれも離してある。';
+      const ledText = !L.bits.length ? '' : lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。';
+      return {
+        status,
+        text: ledText + swText + U.mismatchText(sw),
+        probe: { pattern, lit: lit.length, pressed: known ? pressedNames.length > 0 : null, pressedNames },
       };
     },
   };

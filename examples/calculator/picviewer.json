@@ -1,0 +1,70 @@
+{
+  "title": "電卓（calc.c、4 行 4 列のキーと文字表示の LCD）",
+  "output": "calculator_viewer.html",
+  "fast_forward": 1000,
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/calc.c",
+      "fosc_hz": 4000000,
+      "summary": "キーで 12+34= と打つと、LCD の 2 行目に =46 が出る。最後に C で消す",
+      "wait_ms": 60000,
+      "registers": ["OSCCON", "ANSEL", "ANSELH", "TRISB", "TRISC", "OPTION_REG", "WPUB", "PORTB", "PORTC"],
+      "trace": [
+        { "run_to": 123 },
+        { "step": 10 },
+        { "until_write": "PORTC", "count": 60, "until": 111 },
+        { "press": "1", "note": "1 を押す" },
+        { "run_to": 114 },
+        { "release": true, "note": "1 を離す" },
+        { "until_write": "PORTC", "count": 12, "until": 111 },
+        { "press": "2", "note": "2 を押す" },
+        { "run_to": 114 },
+        { "release": true, "note": "2 を離す" },
+        { "until_write": "PORTC", "count": 12, "until": 111 },
+        { "press": "+", "note": "+ を押す" },
+        { "run_to": 114 },
+        { "release": true, "note": "+ を離す" },
+        { "until_write": "PORTC", "count": 12, "until": 111 },
+        { "press": "3", "note": "3 を押す" },
+        { "run_to": 114 },
+        { "release": true, "note": "3 を離す" },
+        { "until_write": "PORTC", "count": 12, "until": 111 },
+        { "press": "4", "note": "4 を押す" },
+        { "run_to": 114 },
+        { "release": true, "note": "4 を離す" },
+        { "until_write": "PORTC", "count": 12, "until": 111 },
+        { "press": "=", "note": "= を押す" },
+        { "run_to": 114 },
+        { "release": true, "note": "= を離す" },
+        { "until_write": "PORTC", "count": 40, "until": 111 },
+        { "press": "C", "note": "C を押す" },
+        { "run_to": 114 },
+        { "release": true, "note": "C を離す" },
+        { "until_write": "PORTC", "count": 12, "until": 111 }
+      ],
+      "circuit": [
+        { "type": "lcd", "port": "C", "rs": 4, "e": 5, "rw": null, "data": "low" },
+        {
+          "type": "keypad",
+          "rows": ["RB0", "RB1", "RB2", "RB3"],
+          "cols": ["RB4", "RB5", "RB6", "RB7"],
+          "keys": [["1", "2", "3", "+"], ["4", "5", "6", "-"], ["7", "8", "9", "*"], ["C", "0", "=", "/"]]
+        }
+      ],
+      "notes": {
+        "30": "LCD の D4-D7（RC0-RC3）に 4 ビットを出す。",
+        "31": "E を 1 にする。",
+        "32": "E を 0 に下げた。LCD はこの時にデータ線の 4 ビットを読む。",
+        "37": "RS を決める。0 なら命令、1 なら文字。",
+        "111": "キーが押されるまで、scan() で 4 つの行を順に 0 にして、列を読み続ける。",
+        "114": "押されたキーが分かった。次はキーが離されるまで、ここで待つ（離さないと次へ進まない）。",
+        "126": "内部発振器を 4 MHz に。",
+        "129": "RB0-RB3 は行（出力）、RB4-RB7 は列（入力）。",
+        "131": "PORTB の内部プルアップを使う（OPTION_REG の nRBPU を 0 に）。",
+        "132": "プルアップは列の 4 本だけ。押していない列は 1 と読める。"
+      }
+    }
+  ]
+}

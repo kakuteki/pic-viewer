@@ -12,7 +12,7 @@
 
   function ledColumns(t, cfg) {
     const port = String(cfg.port || 'C').toUpperCase();
-    if (Array.isArray(cfg.bits) && cfg.bits.length) return { port, bits: cfg.bits.map(Number) };
+    if (Array.isArray(cfg.bits)) return { port, bits: cfg.bits.map(Number) };     // [] draws the switches only
     const tris = t.regs.find((r) => r.name === 'TRIS' + port);
     const bits = [];
     for (let b = 7; b >= 0; b--) if (!tris || (tris.mask >> b) & 1) bits.push(b);
@@ -31,7 +31,10 @@
     const L = layout(t, cfg, U);
     const high = cfg.active !== 'low';
     const vdd = `+${t.vdd || 5}V`;
-    const svg = U.svgEl('svg', { id: 'cir', viewBox: `0 0 ${Math.max(L.right + 40, 560)} 340`, role: 'img', 'aria-label': `PORT${L.port} の LED とスイッチの回路` });
+    const narrow = !L.bits.length;          // switches only: draw it small instead of across the panel
+    const svg = U.svgEl('svg', { id: 'cir', ...(narrow ? { class: 'narrow' } : {}),
+      viewBox: `0 0 ${narrow ? L.right + 20 : Math.max(L.right + 40, 560)} 340`, role: 'img',
+      'aria-label': narrow ? 'スイッチの回路' : `PORT${L.port} の LED とスイッチの回路` });
     const add = (tag, attrs, text, parent = svg) => { const e = U.svgEl(tag, attrs); if (text !== undefined) e.textContent = text; parent.append(e); return e; };
     const defs = U.svgEl('defs');
     defs.append(U.svgEl('path', { id: 'ah', d: 'M-6 -6.5 L7 0 L-6 6.5 Z' }));
@@ -47,7 +50,7 @@
       add('circle', { class: 'dot', cx: x, cy: 92, r: 4 });
     };
     wire(`M${X0 - 30} ${RAIL} H${L.right}`);
-    add('text', { class: 'dim small', x: L.right - 120, y: RAIL + 24 }, 'GND (0 V) の線');
+    add('text', { class: 'dim small', x: narrow ? X0 - 30 : L.right - 120, y: RAIL + 24 }, narrow ? 'GND' : 'GND (0 V) の線');
     L.sws.forEach((s, k) => {
       const x = X0 + k * SW_DX;
       pinLabel(x, s.pin);
@@ -83,7 +86,7 @@
       add('path', { class: 'led-body', d: high ? `M${cx - 13} 190 H${cx + 13} L${cx} 212 Z` : `M${cx - 13} 214 H${cx + 13} L${cx} 192 Z` }, undefined, g);
       add('line', { class: 'led-bar', x1: cx - 13, x2: cx + 13, y1: high ? 214 : 190, y2: high ? 214 : 190 }, undefined, g);
     });
-    add('text', { class: 'dim small', x: L.ledStart - 20, y: RAIL + 24 }, `各 LED に抵抗 ${cfg.r_ohm || 330} Ω`);
+    if (L.bits.length) add('text', { class: 'dim small', x: L.ledStart - 20, y: RAIL + 24 }, `各 LED に抵抗 ${cfg.r_ohm || 330} Ω`);
     return svg;
   }
 
@@ -100,6 +103,10 @@
       const swText = L.sws.length
         ? `スイッチ: ${L.sws.map((s) => `${s.label}（${s.pin}、押すと ${s.low ? '0' : '1'}）`).join('、')}。`
         : '';
+      if (!L.bits.length) {
+        return { sub: 'スイッチのつなぎ方は仮定', assume: swText, regHint: '太い枠のビットがスイッチのピン。', marks,
+          foot: ['スイッチのつなぎ方は仮定。シミュレータはプルアップを持たないので、離したスイッチの値も trace の set で入れる。'] };
+      }
       return {
         sub: 'LED と抵抗とスイッチのつなぎ方は仮定',
         assume: `LED は ${high ? 'ピンが 1 のとき（ピンから抵抗、LED を通って GND へ）' : 'ピンが 0 のとき（電源から LED、抵抗を通ってピンへ）'}点灯する。${swText}`,
@@ -116,7 +123,7 @@
       const high = cfg.active !== 'low';
       const latch = U.latchOf(R, L.port);
       const tris = R['TRIS' + L.port];
-      if (latch === undefined || tris === undefined) {
+      if (L.bits.length && (latch === undefined || tris === undefined)) {
         return { text: `TRIS${L.port} と PORT${L.port}（または LAT${L.port}）を registers に入れると LED が描ける。` };
       }
       const g = svg.querySelector('#gCur');
@@ -136,15 +143,16 @@
       const pressedNames = sw.filter((s) => s.down).map((s) => s.label);
       const known = sw.length;
       const pattern = L.bits.reduce((acc, b) => acc + (((latch >> b) & 1) ? '1' : '0'), '');
-      const status = [
+      const status = L.bits.length ? [
         { label: `PORT${L.port} の出力`, value: `${U.hex(latch)}（${pattern}）`, tone: lit.length ? 'on' : '' },
         { label: '点灯', value: `${lit.length} 個`, tone: lit.length ? 'on' : '' },
-      ];
+      ] : [];
       if (known) status.push({ label: '押しているスイッチ', value: pressedNames.join('、') || 'なし', tone: pressedNames.length ? 'on' : '' });
       const swText = !known ? '' : pressedNames.length ? `押しているスイッチ: ${pressedNames.join('、')}。` : 'スイッチはどれも離してある。';
+      const ledText = !L.bits.length ? '' : lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。';
       return {
         status,
-        text: (lit.length ? `点灯している LED: ${lit.join('、')}。` : 'LED は全部消えている。') + swText + U.mismatchText(sw),
+        text: ledText + swText + U.mismatchText(sw),
         probe: { pattern, lit: lit.length, pressed: known ? pressedNames.length > 0 : null, pressedNames },
       };
     },

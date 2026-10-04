@@ -17,9 +17,9 @@ from picviewer.compiler import FAST_VAR, compiled_name, fast_define, fast_source
 from picviewer.index import ERROR_FILE, find_projects, index_html
 from picviewer.init import analyze, guess
 from picviewer.linetab import line_at, read_line_table, writer_address
-from picviewer.mdb import MdbError, absolute_cycles, parse_records, probe_errors, trace_commands
+from picviewer.mdb import MdbError, absolute_cycles, key_stimulus, parse_records, probe_errors, trace_commands
 from picviewer.picdef import PicDef
-from picviewer.project import ProjectError, Target, load, parse_plan, pin_level
+from picviewer.project import ProjectError, Target, keypad_keys, keypad_of, load, parse_plan, pin_level
 from picviewer.render import load_bundles, render_html
 from picviewer.server import listing_html, make_server
 from picviewer.toolchain import ENV_XC8, find_device_file, find_xc8, version_key
@@ -407,6 +407,28 @@ class ProjectTest(TempDirTest):
             with self.subTest(data=data), self.assertRaises(ProjectError):
                 load(self.write(data))
 
+    KEYPAD = {"type": "keypad", "rows": ["RB0", "RB1"], "cols": ["RB4", "RB5"], "keys": [["1", "2"], ["3", "+"]]}
+
+    def test_keys_and_circuit_lists(self):
+        plan = [{"run_to": 3}, {"press": "+", "note": "押す"}, {"run_to": 5}, {"release": True}]
+        p = load(self.write(self.base(trace=plan, circuit=[{"type": "lcd"}, self.KEYPAD])))
+        t = p.targets[0]
+        self.assertEqual([c["type"] for c in t.circuit], ["lcd", "keypad"])
+        self.assertEqual(t.trace[1], {"press": "+", "note": "押す"})
+        self.assertEqual(keypad_keys(keypad_of(t.circuit)), {"1": ("RB0", "RB4"), "2": ("RB0", "RB5"),
+                                                            "3": ("RB1", "RB4"), "+": ("RB1", "RB5")})
+        bad = [
+            self.base(trace=plan),                                                  # no keypad in the circuit
+            self.base(trace=[{"run_to": 3}, {"press": "9"}], circuit=[self.KEYPAD]),  # no such key
+            self.base(circuit=[{**self.KEYPAD, "keys": [["1", "2"]]}]),              # 1 row of keys for 2 rows
+            self.base(circuit=[{**self.KEYPAD, "keys": [["1", "1"], ["3", "4"]]}]),  # the same label twice
+            self.base(circuit=[]),
+            self.base(trace=[{"run_to": 3}, {"release": False}]),
+        ]
+        for data in bad:
+            with self.subTest(data=data), self.assertRaises(ProjectError):
+                load(self.write(data))
+
     def test_plan_show_defaults_to_line(self):
         plan = parse_plan([{"run_to": 5}, {"run_to": 9}], "t")
         self.assertEqual(plan[1], {"run_to": 9, "show": 9})
@@ -465,15 +487,44 @@ class MdbTest(unittest.TestCase):
         self.assertEqual(cmds[cmds.index("Wait 50") + 1], "Halt")      # a Wait that runs out leaves it running
         self.assertIn(f"Print {FAST_VAR}", cmds)
 
+    def test_keypad_commands(self):
+        keys = {"1": ("RB0", "RB4"), "+": ("RB1", "RB5")}
+        pad = {"cols": ["RB4", "RB5"], "keys": keys, "scl": {"1": Path("/w/k0.scl"), "+": Path("/w/k1.scl")}}
+        plan = [{"run_to": 13}, {"press": "1", "note": ""}, {"run_to": 20, "show": 20},
+                {"press": "+", "note": ""}, {"run_to": 20, "show": 20}, {"release": True, "note": ""},
+                {"run_to": 22, "show": 22}]
+        cmds, kinds = trace_commands("PIC16F999", Path("/w/a.elf"), "a.c", plan, ["PORTB"], 1000, keypad=pad)
+        self.assertEqual(kinds, ["start", "run", "run", "run"])
+        self.assertLess(cmds.index("write pin RB5 high"), cmds.index("Run"))      # the columns start released
+        first = cmds.index('Stim "/w/k0.scl"')
+        second = cmds.index('Stim "/w/k1.scl"')
+        self.assertEqual(cmds[second - 2:second], ["Stim", "write pin RB4 high"])  # the first key let go first
+        last = len(cmds) - 1 - cmds[::-1].index("Stim")
+        self.assertGreater(last, second)
+        self.assertEqual(cmds[last + 1], "write pin RB5 high")                     # released: column back to 1
+        self.assertLess(first, second)
+        scl = key_stimulus("PIC16F886", "RB1", "RB5")
+        self.assertIn('testbench for "pic16f886" is', scl)
+        self.assertIn("wait until RB1 == '0';", scl)
+        self.assertIn("RB5 <= '1';", scl)
+
+    def test_stop_in_a_library(self):
+        log = ("Halt\nSimulator halted\nPrint PORTC\nStop at\n\taddress:0xe2\n"
+               "\tfile:C:/Program Files (x86)/Microchip/MPLABXC8/v3.0.0/pic/sources/c99/common/awdiv.c\n"
+               "\tsource line:35\nPORTC=\n1\nStopwatch cycle count = 5\n")
+        rec = parse_records(log, ["PORTC"], "stopwatch.c")[0]
+        self.assertEqual((rec["line"], rec["where"], rec["timeout"]), (None, "awdiv.c", True))   # not line 35 of ours
+        own = log.replace("C:/Program Files (x86)/Microchip/MPLABXC8/v3.0.0/pic/sources/c99/common/awdiv.c",
+                          "C:/w/build/sim/stopwatch.c")
+        self.assertEqual(parse_records(own, ["PORTC"], "stopwatch.c")[0]["line"], 35)
+
     def test_timeout_records(self):
         recs = parse_records(TIMEOUT_LOG, ["PORTC"])
         self.assertEqual([r["timeout"] for r in recs], [True, False])
         self.assertEqual([r["line"] for r in recs], [15, 15])
         self.assertEqual(recs[1]["values"]["PORTC"], 2)
         no_line = "Halt\nSimulator halted\nPrint PORTC\nStop at\n\taddress:0x10\nPORTC=\n1\nStopwatch cycle count = 5\n"
-        self.assertIsNone(parse_records(no_line, ["PORTC"])[0]["line"])   # allowed only for a timeout
-        with self.assertRaises(MdbError):
-            parse_records(no_line.replace("Halt\nSimulator halted\n", ""), ["PORTC"])
+        self.assertIsNone(parse_records(no_line, ["PORTC"])[0]["line"])
 
 
 class LineTableTest(TempDirTest):
@@ -574,6 +625,26 @@ class BundleTest(unittest.TestCase):
         with self.assertRaisesRegex(MdbError, "着かない"):
             make_steps([{"run_to": 13}, {"run_to": 20}], [self.rec(13, 0, 5), self.rec(15, 0, 9, True)], regs)
 
+    def test_stops_without_a_line(self):
+        regs = [{"name": "PORTC", "mask": 0xFF, "bits": []}]
+        plan = [{"run_to": 13}, {"until_write": "PORTC", "count": 2}]
+        records = [self.rec(13, 0, 5), self.rec(None, 1, 7), {**self.rec(None, 1, 900, True), "where": "awdiv.c"}]
+        steps = make_steps(plan, records, regs, writer_line=lambda a: 62, line_of=lambda a: 62)
+        self.assertEqual((steps[1]["exec"], steps[1]["next"]), (62, 62))       # compiler glue after our write
+        self.assertEqual((steps[2]["next"], steps[2]["where"]), (None, "awdiv.c"))   # not guessed from our lines
+        with self.assertRaisesRegex(MdbError, "行番号"):
+            make_steps([{"run_to": 13}, {"step": 1}], [self.rec(13, 0, 5), self.rec(None, 0, 6)], regs)
+
+    def test_key_events(self):
+        plan = [{"run_to": 13}, {"press": "5", "note": "5 を押す"}, {"run_to": 20, "show": 20},
+                {"release": True, "note": ""}, {"until_write": "PORTC", "count": 1}]
+        regs = [{"name": "PORTC", "mask": 0xFF, "bits": []}]
+        steps = make_steps(plan, [self.rec(13, 0, 5), self.rec(20, 0, 9), self.rec(18, 1, 9)], regs,
+                           writer_line=lambda a: 17)
+        self.assertEqual((steps[1]["key"], steps[1]["input_note"]), ("5", "5 を押す"))
+        self.assertEqual(steps[2]["key"], "")                                   # released
+        self.assertNotIn("key", steps[0])
+
 
 class InitTest(unittest.TestCase):
     def test_analyze(self):
@@ -668,7 +739,8 @@ class WaveTest(unittest.TestCase):
 
 class RenderTest(TempDirTest):
     def test_examples_are_up_to_date(self):
-        self.assertEqual(EXAMPLE_NAMES, ["buttons", "lcd", "led", "motor", "seg7_counter", "switch_leds"])
+        self.assertEqual(EXAMPLE_NAMES, ["buttons", "calculator", "lcd", "led", "motor", "seg7_counter",
+                                         "stopwatch", "switch_leds", "voltmeter"])
         for name in EXAMPLE_NAMES:
             with self.subTest(example=name):
                 project = load(EXAMPLES / name)
@@ -685,6 +757,12 @@ class RenderTest(TempDirTest):
         self.assertIn(f"picviewer {__version__}", page)
         self.assertNotIn("C:/Users", page)
         self.assertNotIn("C:\\\\Users", page)
+
+    def test_circuit_parts_bring_their_scripts(self):
+        page = render_html(load(EXAMPLES / "calculator"), load_bundles(load(EXAMPLES / "calculator")))
+        for name in ("lcd", "keypad", "pins"):
+            self.assertIn(f"PicViewer.circuits.{name} =", page)
+        self.assertNotIn("PicViewer.circuits.hbridge =", page)
 
     def test_pins_view_from_led_bundles(self):
         data = json.loads((EXAMPLES / "led" / "picviewer.json").read_text(encoding="utf-8"))

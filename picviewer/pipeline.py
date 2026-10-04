@@ -8,9 +8,9 @@ from . import bundle as bundle_io
 from .bundle import make_bundle, make_steps, read_source, register_info
 from .compiler import FAST_VAR, compile_target, compiled_name, skipped_per_ms
 from .linetab import line_at, read_line_table, writer_address
-from .mdb import MdbError, parse_records, probe_commands, probe_errors, run as mdb_run, trace_commands
+from .mdb import MdbError, key_stimulus, parse_records, probe_commands, probe_errors, run as mdb_run, trace_commands
 from .picdef import PicDef
-from .project import plan_lines, plan_pins, plan_watches
+from .project import keypad_keys, keypad_of, plan_lines, plan_pins, plan_watches
 from .toolchain import find_device_file, xc8_version
 from .wave import parse_samples, summarize, wave_commands
 
@@ -23,11 +23,29 @@ def _say(message):
     print(message, flush=True)       # keep progress in order with error messages when the output is piped
 
 
+def keypad_setup(target, work):
+    """What trace_commands needs for a keypad: its columns, its keys and one SCL file per key the plan presses."""
+    pad = keypad_of(target.circuit)
+    if pad is None:
+        return None
+    keys = keypad_keys(pad)
+    folder = Path(work) / "keys"
+    folder.mkdir(parents=True, exist_ok=True)
+    scl = {}
+    for i, label in enumerate(sorted({a["press"] for a in target.trace if "press" in a})):
+        path = folder / f"key{i}.scl"            # labels such as + and * do not belong in file names
+        path.write_text(key_stimulus(target.device, *keys[label]), encoding="ascii", newline="\n")
+        scl[label] = path
+    return {"cols": [c.upper() for c in pad["cols"]], "keys": keys, "scl": scl}
+
+
 def check_names(target, picdef):
     """Names mdb would not check for us: a wrong pin stops mdb, and a wrong watched register is accepted silently."""
     known = {n.upper() for names in picdef.pins() for n in names}
     errors = []
-    bad_pins = [p for p in plan_pins(target.trace) if p.upper() not in known]
+    pad = keypad_of(target.circuit)
+    pad_pins = [p.upper() for p in pad["rows"] + pad["cols"]] if pad else []
+    bad_pins = [p for p in plan_pins(target.trace) + pad_pins if p.upper() not in known]
     if bad_pins:
         errors.append(f"{target.device} に無いピン名: {bad_pins}（RB0、AN0 のようにデバイス定義ファイルの名前で書く）")
     for reg in plan_watches(target.trace):
@@ -76,14 +94,15 @@ def build_target(project, target, tc, *, compile=True, reuse_logs=False, waves=T
             if errors:
                 raise MdbError("\n".join(errors))
         cmds, kinds = trace_commands(target.device, elf, src, target.trace, target.registers,
-                                     target.wait_ms, variables)
+                                     target.wait_ms, variables, keypad=keypad_setup(target, work))
         waits = sum(1 for k in kinds if k in ("start", "run", "write"))
         log(f"[{target.id}] シミュレータで実行（{len(kinds)} 回止めてレジスタを読む）")
         text = mdb_run(mdb, cmds, trace_log, timeout=300 + waits * target.wait_ms / 1000 + len(kinds) * 3)
 
     table = read_line_table(elf.with_suffix(".cmf"), src)
-    steps = make_steps(target.trace, parse_records(text, target.registers + variables), registers,
+    steps = make_steps(target.trace, parse_records(text, target.registers + variables, src), registers,
                        writer_line=lambda a: line_at(table, writer_address(target.device, a)) if table else None,
+                       line_of=lambda a: line_at(table, a) if table else None,
                        delay_var=FAST_VAR if target.fast_forward else None,
                        us_per_ms=skipped_per_ms(target.fast_forward) if target.fast_forward else 0)
 

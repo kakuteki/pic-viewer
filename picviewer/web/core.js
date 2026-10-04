@@ -82,7 +82,10 @@
   // ---------------- data helpers
   const tgt = () => D.targets[S.t];
   const last = () => tgt().steps.length - 1;
-  const circuitOf = (t) => PV.circuits[t.circuit.type] || PV.circuits.pins;
+  // a target's circuit is one part or a list of parts, each drawn by the plugin of its type
+  const partsOf = (t) => (Array.isArray(t.circuit) ? t.circuit : [t.circuit]);
+  const pluginOf = (cfg) => PV.circuits[cfg.type] || PV.circuits.pins;
+  const optionsOf = (t) => partsOf(t).flatMap((cfg) => pluginOf(cfg).options || []);
   const isCounter = (t, name) => t.counters.indexOf(name) >= 0;
   const instrHz = (t) => (t.fosc_hz ? t.fosc_hz / 4 : null);
   const bitName = (r, b) => r.bits[b] || `${r.name}<${b}>`;
@@ -94,6 +97,21 @@
     const out = {};
     for (let i = 0; i <= k && i < t.steps.length; i++) Object.assign(out, t.steps[i].inputs || {});
     return out;
+  }
+
+  // the keypad key held at step k (trace "press" and "release"), or ''
+  function keyAt(t, k) {
+    let key = '';
+    for (let i = 0; i <= k && i < t.steps.length; i++) if (t.steps[i].key !== undefined) key = t.steps[i].key;
+    return key;
+  }
+
+  // what the plan changed just before this stop: input levels, a key pressed or released
+  function changeText(st) {
+    const parts = [];
+    if (st.inputs && Object.keys(st.inputs).length) parts.push(`入力を変えた: ${Object.entries(st.inputs).map(([p, v]) => `${p} = ${levelText(v)}`).join('、')}`);
+    if (st.key !== undefined) parts.push(st.key ? `キー ${st.key} を押した` : 'キーを離した');
+    return parts.length ? `${parts.join('、')}${st.input_note ? `（${st.input_note}）` : ''}。` : '';
   }
 
   function regsAt(t, step) {
@@ -129,9 +147,9 @@
     });
   }
 
-  function buildOptions(c) {
+  function buildOptions(t) {
     document.querySelectorAll('#choices .seg.opt').forEach((n) => n.remove());
-    (c.options || []).forEach((o) => {
+    optionsOf(t).forEach((o) => {
       if (!o.choices.some((ch) => ch.value === S.opts[o.key])) S.opts[o.key] = o.default || o.choices[0].value;
       const fs = el('fieldset', 'seg opt');
       fs.append(el('legend', '', o.legend));
@@ -208,12 +226,11 @@
   }
 
   function ctxBase(t) {
-    return { t, cfg: t.circuit, box: $('cirBox'), opts: S.opts, U: PV.util };
+    return { t, opts: S.opts, U: PV.util };
   }
 
   function buildTarget() {
     const t = tgt();
-    const c = circuitOf(t);
     S.step = Math.min(S.step, last());
     $('slider').max = String(last());
     $('srcName').textContent = t.source_name;
@@ -221,17 +238,24 @@
       ? `${t.device}: ${t.summary}`
       : `${t.device} の ${t.source_name} を MPLAB X のシミュレータで実行した記録。`;
     buildSource(t);
-    buildOptions(c);
-    $('cirTitle').textContent = c.title || '回路';
-    $('cirBox').replaceChildren();
-    const info = c.setup(ctxBase(t)) || {};
-    buildRegs(t, info.marks || []);
-    $('cirSub').textContent = info.sub || '';
-    $('cirAssume').textContent = info.assume || '';
+    buildOptions(t);
+    const parts = partsOf(t);
+    const box = $('cirBox');
+    box.replaceChildren();
+    const infos = parts.map((cfg) => {
+      const part = el('div', 'cirpart');
+      box.append(part);
+      return pluginOf(cfg).setup({ ...ctxBase(t), cfg, box: part }) || {};
+    });
+    const joined = (key, sep) => infos.map((i) => i[key]).filter(Boolean).join(sep);
+    $('cirTitle').textContent = [...new Set(parts.map((cfg) => pluginOf(cfg).title || '回路'))].join('、');
+    buildRegs(t, infos.flatMap((i) => i.marks || []));
+    $('cirSub').textContent = joined('sub', '。');
+    $('cirAssume').textContent = joined('assume', ' ');
     const counterHint = t.counters.length ? `${t.counters.join('、')} は数え続けるカウンタなので、変化の印を付けない。` : '';
-    $('regHint').textContent = ['オレンジの枠は直前のステップから変わったビット。- はそのマイコンに無いビット。', info.regHint || '', counterHint]
+    $('regHint').textContent = ['オレンジの枠は直前のステップから変わったビット。- はそのマイコンに無いビット。', joined('regHint', ' '), counterHint]
       .filter(Boolean).join(' ');
-    buildFoot(t, info.foot || []);
+    buildFoot(t, infos.flatMap((i) => i.foot || []));
     buildTiming(t);
     update();
   }
@@ -247,9 +271,7 @@
   function explain(t, st, prev) {
     const regsChanged = [];
     if (prev) t.regs.forEach((r, i) => { if (!isCounter(t, r.name) && prev.v[i] !== st.v[i]) regsChanged.push(`${r.name} ${hex(prev.v[i])} から ${hex(st.v[i])}`); });
-    const inputs = st.inputs
-      ? `入力を変えた: ${Object.entries(st.inputs).map(([p, v]) => `${p} = ${levelText(v)}`).join('、')}${st.input_note ? `（${st.input_note}）` : ''}。`
-      : '';
+    const inputs = changeText(st);
     if (st.kind === 'timeout') {
       const ran = st.cycles - (prev ? prev.cycles : 0);
       const s1 = secondsOf(t, st);
@@ -258,7 +280,8 @@
       $('exNo').textContent = '';
       $('exCode').textContent = `${st.watch} への書き込みなし`;
       $('exNote').textContent = inputs + `${st.watch} に書かないまま待ったので、シミュレータを止めた（その間 ${span}）。`
-        + (st.next ? `止めたときは ${st.next} 行目のあたりを実行していた。` : '')
+        + (st.next ? `止めたときは ${st.next} 行目のあたりを実行していた。`
+          : st.where ? `止めたときは ${st.where}（XC8 に付いてくる関数。割り算などで呼ばれる）の中を実行していた。` : '')
         + '入力が変わるのを待っているか、書き込みの無い所を回っている。待った長さは止め方で決まる（実機ならスイッチを押すまでの時間）。';
     } else if (st.exec === null) {
       $('exNo').textContent = '';
@@ -435,10 +458,11 @@
     // input changes and cut-short waits along the top
     t.steps.forEach((st, k) => {
       if (st.kind === 'timeout') add('line', { class: 'tmwait', x1: X(k), x2: X(k), y1: TM.TOP - 6, y2: H - TM.FOOT });
-      if (st.inputs) {
+      const change = changeText(st);
+      if (change) {
         const g = add('g', { class: 'tmin' });
         add('path', { d: `M${X(k) - 5} ${TM.TOP - 16} H${X(k) + 5} L${X(k)} ${TM.TOP - 7} Z` }, undefined, g);
-        add('title', {}, `ステップ ${k}: ${Object.entries(st.inputs).map(([p, v]) => `${p} = ${levelText(v)}`).join('、')}${st.input_note ? `（${st.input_note}）` : ''}`, g);
+        add('title', {}, `ステップ ${k}: ${change}`, g);
       }
     });
     breaks.forEach((bk) => {
@@ -543,11 +567,16 @@
     explain(t, st, prev);
     paintSource(st);
     paintRegs(t, st, prev);
-    const res = circuitOf(t).update({ ...ctxBase(t), st, prev, k: S.step, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null,
-      inputs: inputsAt(t, S.step), regsAt: (step) => regsAt(t, step), fmtTime, instrHz: instrHz(t), seconds: secondsOf(t, st) }) || {};
-    paintStatus(res.status || []);
-    $('cirText').textContent = res.text || '';
-    S.probe = res.probe || null;
+    const base = { ...ctxBase(t), st, prev, k: S.step, R: regsAt(t, st), P: prev ? regsAt(t, prev) : null,
+      inputs: inputsAt(t, S.step), key: keyAt(t, S.step), regsAt: (step) => regsAt(t, step), fmtTime,
+      instrHz: instrHz(t), seconds: secondsOf(t, st) };
+    const boxes = $('cirBox').children;
+    const results = partsOf(t).map((cfg, i) => pluginOf(cfg).update({ ...base, cfg, box: boxes[i] }) || {});
+    paintStatus(results.flatMap((r) => r.status || []));
+    $('cirText').textContent = results.map((r) => r.text).filter(Boolean).join(' ');
+    // merged for the common one-part case; 'parts' keeps each part's own values where names collide
+    S.probe = results.some((r) => r.probe)
+      ? { ...Object.assign({}, ...results.map((r) => r.probe || {})), parts: results.map((r) => r.probe || null) } : null;
     paintWaves(t, st);
     paintTiming(t, st, prev);
     writeHash(t);
@@ -556,7 +585,7 @@
   // ---------------- state, hash and controls
   function writeHash(t) {
     const p = new URLSearchParams({ target: t.id, step: String(S.step) });
-    (circuitOf(t).options || []).forEach((o) => p.set(o.key, S.opts[o.key]));
+    optionsOf(t).forEach((o) => p.set(o.key, S.opts[o.key]));
     try { history.replaceState(null, '', '#' + p.toString()); } catch (e) { /* file:// may refuse */ }
   }
   function readHash() {
@@ -615,7 +644,7 @@
     const t = tgt();
     const st = t.steps[S.step];
     return { target: t.id, step: S.step, last: last(), exec: st.exec, next: st.next, kind: st.kind,
-      opts: { ...S.opts }, playing: Boolean(S.timer), probe: S.probe,
+      opts: { ...S.opts }, playing: Boolean(S.timer), probe: S.probe, key: keyAt(t, S.step),
       timing: S.tm ? { mode: S.tmMode, rows: S.tm.rows.map((r) => r.name), cursor: Number(S.tm.cursor.getAttribute('x1')),
         changed: S.tm.rows.filter((_, r) => S.tm.labels[r].classList.contains('chg')).map((row) => row.name) } : null };
   };
