@@ -361,6 +361,16 @@ def seg7_mux_count():
     expect("count: and the page says it averaged a round", "1 巡" in text_of("cirText"), text_of("cirText"))
 
 
+def seg7_board():
+    steps = steps_of("seg7_board")
+    open_page("examples/seg7_board/seg7_board_viewer.html")
+    goto(len(steps) - 1)
+    check("board: every digit stays lit, read as it is now", shown="8.8.8.8.", still=True)
+    text = text_of("cirText")
+    expect("board: the page says the digits are not switched", "切り替えていない" in text, text)
+    expect("board: the buzzer next to the display sounds about 1 kHz", "985 Hz" in text or "1 kHz" in text, text)
+
+
 def main():
     global failures
     if EXE is None:
@@ -378,6 +388,7 @@ def main():
     stopwatch()
     seg7_mux()
     seg7_mux_count()
+    seg7_board()
     buzzer()
     servo()
     dcmotor()

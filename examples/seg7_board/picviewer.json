@@ -1,0 +1,82 @@
+{
+  "title": "基板の配線を渡して作る（board_test.c、init --seg7-board）",
+  "output": "seg7_board_viewer.html",
+  "targets": [
+    {
+      "id": "pic16f886",
+      "device": "PIC16F886",
+      "source": "pic16f886/board_test.c",
+      "fosc_hz": 4000000,
+      "summary": "基板の点検: 4 桁の 7 セグを全部点けたまま、RB0 のブザーを 1 kHz で 0.1 秒鳴らす。計画は picviewer init --seg7-board C:RA0,RA1,RA2,RA3 が作ったもの（配線を渡さないと、表示を触るだけのこのプログラムからは 7 セグと分からない）",
+      "fast_forward": 1000,
+      "wait_ms": 20000,
+      "registers": [
+        "OSCCON",
+        "ANSEL",
+        "ANSELH",
+        "TRISA",
+        "TRISB",
+        "TRISC",
+        "PORTA",
+        "PORTB",
+        "PORTC"
+      ],
+      "circuit": [
+        {
+          "type": "seg7mux",
+          "port": "C",
+          "digits": [
+            {
+              "pin": "RA0",
+              "active": "low"
+            },
+            {
+              "pin": "RA1",
+              "active": "low"
+            },
+            {
+              "pin": "RA2",
+              "active": "low"
+            },
+            {
+              "pin": "RA3",
+              "active": "low"
+            }
+          ]
+        },
+        {
+          "type": "buzzer",
+          "pin": "RB0",
+          "label": "BZ"
+        }
+      ],
+      "trace": [
+        {
+          "run_to": 17
+        },
+        {
+          "step": 9
+        },
+        {
+          "until_write": [
+            "PORTC",
+            "PORTA",
+            "PORTB"
+          ],
+          "count": 40,
+          "wait_ms": 3000
+        }
+      ],
+      "notes": {
+        "17": "内部発振器を 4 MHz に",
+        "18": "アナログ入力を使わない",
+        "20": "RA0-RA3 は桁",
+        "21": "RB0 はブザー",
+        "22": "RC0-RC7 は区画",
+        "23": "区画を全部点ける",
+        "24": "4 桁とも点ける（切り替えない）",
+        "27": "1 kHz を 0.1 秒"
+      }
+    }
+  ]
+}

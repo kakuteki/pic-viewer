@@ -291,6 +291,7 @@ mdb と XC8 は優先度を下げて動かすので、何十本も作ってい�
 | [examples/stopwatch](examples/stopwatch) | ストップウォッチ。タイマー 1 の割り込みで 0.5 秒ずつ数え、スイッチで計る・止めるを切り替え、秒を 7 セグメント LED に出す（1 秒ごとに書き換わる）。PIC16F886 |
 | [examples/seg7_mux](examples/seg7_mux) | 4 桁の 7 セグメント LED を 5 ms ずつ順に点けて 1234 を出し、0.5 秒後に 1235 にする。1 回に点いているのは 1 桁だけだが、20 ms の平均で 4 桁が見える。PIC16F886 |
 | [examples/seg7_mux_count](examples/seg7_mux_count) | 2 桁の 7 セグメント LED で 00 から数える（入れ子の `for` の変数で表を引く）。計画は `picviewer init` が作ったままで、一の位の `for` の終わりへ 3 回、十の位の `for` の終わりへ 1 回走らせて 01、02、03、10 と進むのを見せる。走らせた後は、記録のある 1 巡（10 ms）で平均する。PIC16F886 |
+| [examples/seg7_board](examples/seg7_board) | 基板の点検: 4 桁の 7 セグを切り替えずに全部点けたまま、ブザーを 1 kHz で鳴らす。計画は `picviewer init --seg7-board C:RA0,RA1,RA2,RA3` が作ったまま（配線を渡さないと、表示を触るだけのこのプログラムからは 7 セグと分からず、ブザーだけになる）。表示とブザーを並べて描く。PIC16F886 |
 | [examples/buzzer](examples/buzzer) | 圧電ブザーでド・レ・ミを 0.5 秒ずつ鳴らす。`__delay_us` で 1 と 0 を切り替える間隔が音の高さになる。計画は `picviewer init` が作ったもの（ループの中の 3 つの `for` を区切りとして走らせる）。PIC16F886 |
 | [examples/servo](examples/servo) | サーボモーターへ 20 ms ごとに幅 1.0 / 1.5 / 2.0 ms のパルスを出し、3 つの角度へ動かす。計画は `picviewer init` が作ったもの。PIC16F886 |
 | [examples/dcmotor](examples/dcmotor) | IN1・IN2 のモータードライバで DC モーターを正転・逆転し、SW2 では IN1 を 5 ms ずつ切り替えて半分の速さで回す。PIC16F886 |

@@ -1473,7 +1473,8 @@ class WaveTest(unittest.TestCase):
 class RenderTest(TempDirTest):
     def test_examples_are_up_to_date(self):
         self.assertEqual(EXAMPLE_NAMES, ["buttons", "buzzer", "calculator", "dcmotor", "lcd", "led", "motor",
-                                         "seg7_counter", "seg7_mux", "seg7_mux_count", "servo", "stopwatch", "switch_leds",
+                                         "seg7_board", "seg7_counter", "seg7_mux", "seg7_mux_count", "servo", "stopwatch",
+                                         "switch_leds",
                                          "voltmeter"])
         for name in EXAMPLE_NAMES:
             with self.subTest(example=name):
