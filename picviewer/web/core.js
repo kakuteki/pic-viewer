@@ -101,12 +101,17 @@
   };
   // the recorded stretches before step k, newest first, as far back as `span` (seconds, or instruction cycles
   // without a clock) or to the first unknown stretch: {spans: [{from, to, R, i}], covered, cut, end, top}. With
-  // `ahead` they reach on to the next stop when this stop's values are known to hold until then (top = k + 1)
+  // `ahead` they reach on to the next stop when this stop's values are known to hold until then (top = k + 1); when
+  // `ahead` is a function (same(i): stop i leaves what is drawn as it was at k), on over such stops to the first
+  // that changes it. Never across an input change: the inputs of a stop were set right after the stop before
   function history(t, k, span, ahead) {
     const timeOf = (i) => { const s = secondsOf(t, t.steps[i]); return s === null ? t.steps[i].cycles : s; };
-    // not across an input change: the inputs of step k + 1 were set right after stop k, so up to it is after the change
-    const next = t.steps[k + 1];
-    const top = ahead && knownAfter(t, k) && !next.inputs && next.key === undefined ? k + 1 : k;
+    const onward = (i) => knownAfter(t, i) && !t.steps[i + 1].inputs && t.steps[i + 1].key === undefined;
+    let top = k;
+    if (ahead && onward(top)) {
+      top += 1;
+      if (typeof ahead === 'function') while (ahead(top) && onward(top)) top += 1;
+    }
     const end = timeOf(top);
     const spans = [];
     let cut = false;
@@ -355,7 +360,8 @@
       $('exNote').textContent = inputs + `${st.watch} に書かないまま待ったので、シミュレータを止めた（その間 ${span}）。`
         + (st.next ? `止めたときは ${st.next} 行目のあたりを実行していた。`
           : st.where ? `止めたときは ${st.where}（XC8 に付いてくる関数。割り算などで呼ばれる）の中を実行していた。` : '')
-        + '入力が変わるのを待っているか、書き込みの無い所を回っている。待った長さは止め方で決まる（実機ならスイッチを押すまでの時間）。';
+        + `入力が変わるのを待っているか、${st.watch} に書かない所を回っている（ほかのレジスタには書いているかもしれない）。`
+        + '待った長さは止め方で決まる（実機ならスイッチを押すまでの時間）。';
     } else if (st.kind === 'run' && st.missed) {
       // a run_to init guessed that did not arrive within the wait
       $('exNo').textContent = '';

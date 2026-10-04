@@ -103,9 +103,11 @@
         status.push({ label: '1 周期', value: `${p.period} サイクル` });
         text = `${pin} を 1 と 0 に交互に切り替えている（1 周期 ${p.period} 命令サイクル）。fosc_hz を書くと音の高さ（Hz）が出る。`;
       } else if (p.period === null && p.edges > 0 && p.since !== null && p.since <= STARTED) {
-        // switching, but not yet a full cycle since the input change or the start of the recording
-        status.push({ label: '音', value: '（鳴り始め）', tone: 'on' });
-        text = `${pin} を切り替え始めたところで、まだ 1 周期分の記録が無い（音の高さは次の 1 周期で分かる）。`;
+        // switching, but not yet a full cycle since the input change (the sound may go on from before it) or the
+        // start of the recording
+        status.push({ label: '音', value: p.input ? '（入力を変えた直後）' : '（鳴り始め）', tone: 'on' });
+        text = p.input ? `${pin} は入力を変えた後も切り替えているが、変えてからまだ 1 周期分の記録が無い（音の高さは次の 1 周期で分かる）。`
+          : `${pin} を切り替え始めたところで、まだ 1 周期分の記録が無い（音の高さは次の 1 周期で分かる）。`;
       } else if (p.cut && p.period === null && p.edges === 0) {
         // the stretch before was run without stopping at the writes: the pitch is not in the recording
         status.push({ label: '音', value: '（記録が足りない）' });

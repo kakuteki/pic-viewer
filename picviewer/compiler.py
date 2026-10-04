@@ -103,6 +103,30 @@ def error_lines(log, most=15):
     return "\n".join(lines[i] for i in picked) + (f"\n（ほかに {rest} 行。全部は build の compile.log）" if rest else "")
 
 
+def watchdog_off(xc8, device):
+    """'#pragma config WDT = OFF' in the device's own words (the setting XC8's config data calls the watchdog
+    timer enable bit), or None when it cannot be found."""
+    data = Path(xc8).resolve().parent.parent / "pic" / "dat" / "cfgdata" / f"{device.lower().removeprefix('pic')}.cfgdata"
+    try:
+        lines = data.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    name = None
+    for line in lines:
+        parts = line.split(":")
+        if parts[0] == "CSETTING" and len(parts) >= 4:
+            name = parts[2] if "watchdog timer enable" in parts[3].lower() else None
+        elif parts[0] == "CVALUE" and name and len(parts) >= 3 and "OFF" in parts[2].split(","):
+            return f"#pragma config {name} = OFF"
+    return None
+
+
+def sets_no_config(text):
+    """True when the source sets no configuration bits at all: a board loaded through a bootloader keeps its own,
+    while the simulator would start from the device's defaults (the watchdog on)."""
+    return re.search(r"^\s*#\s*pragma\s+config\b", text, re.M | re.I) is None and "__CONFIG" not in text
+
+
 def compile_target(xc8, target, work):
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
@@ -112,13 +136,16 @@ def compile_target(xc8, target, work):
     name = compiled_name(target)
     text = target.source.read_text(encoding="utf-8", errors="surrogateescape")
     text, old_forms = compat_source(text)
-    if target.fast_forward or name != target.source.name or old_forms or not str(target.source).isascii():
+    wdt = watchdog_off(xc8, target.device) if sets_no_config(text) else None
+    if target.fast_forward or name != target.source.name or old_forms or not str(target.source).isascii() or wdt:
         # a copy under build/: the original is never touched, and #include "..." still finds its neighbours
         sim = work / "sim"
         sim.mkdir(exist_ok=True)
         if target.fast_forward:
             text, _ = fast_source(text)
             extra.append(fast_define(target.fast_forward))
+        if wdt:                           # at the end: every line keeps its number
+            text = text.rstrip("\n") + f"\n{wdt}   // picviewer: the source sets no configuration bits\n"
         source = sim / name
         source.write_text(text, encoding="utf-8", errors="surrogateescape", newline="\n")
         include = ascii_path(target.source.parent)     # for #include "..." next to the source, when XC8 can open it

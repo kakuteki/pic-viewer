@@ -15,7 +15,7 @@ from picviewer.bundle import dumps, expand_plan, make_steps, register_info
 from picviewer.cli import _sources, build_parser
 from picviewer.cli import main as cli_main
 from picviewer.compiler import (FAST_VAR, CompileError, compat_source, compiled_name, copy_includes, error_lines,
-                                fast_define, fast_source, skipped_per_ms)
+                                fast_define, fast_source, sets_no_config, skipped_per_ms, watchdog_off)
 from picviewer.index import ERROR_FILE, find_projects, index_html, natural
 from picviewer.init import analyze, guess, init_source, parse_seg7_board
 from picviewer.linetab import line_at, read_line_table, writer_address
@@ -1326,6 +1326,59 @@ void main(void)
         text, table = self.program(body, before="#define BZ PORTCbits.RC0\n#define SW0 !PORTAbits.RA0\nchar mode;")
         target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS)
         self.assertEqual(sum(1 for a in target["trace"] if "run_to" in a), 1)
+
+    def test_three_switch_conditions_and_walks_with_a_switch_released(self):
+        # each other pin of a condition is tried on its own: all three are read
+        text, _ = self.program(["TRISB = 0;", "while (1) {",
+                                "    if (PORTAbits.RA0 == 0 && PORTAbits.RA1 == 1 && PORTAbits.RA2 == 1) PORTC = 1;", "}"])
+        info = analyze(text)
+        self.assertIn([{"RA0": 0, "RA1": 1, "RA2": 1}], info["cond_wants"].values())
+        self.assertIn((("RA0", 0), ("RA1", 1), ("RA2", 1)), info["combos"])
+        # one pressed among released ones: only the odd one out says how a press reads (all press to 1 here)
+        one_hot = [f"    if ({' && '.join(f'PORTAbits.RA{b} == {int(b == pick)}' for b in range(4))}) PORTC = {pick};"
+                   for pick in range(4)]
+        _, sw = self.switches(["while (1) {", *one_hot, "}"])
+        self.assertEqual(sw, [(f"RA{b}", "high") for b in range(4)])
+        # an if on SW0 released and SW1 pressed: walked when SW1 alone is pressed
+        note = ["    for (int i = 0; i < 10; i++) {", "        BZ = 1; __delay_us({d}); BZ = 0; __delay_us({d});", "    }"]
+        body = ["while (1) {", "if (SW0 == 0 && SW1 == 1) {",
+                *[ln.replace("{d}", d) for d in ("500", "400") for ln in note], "}", "}"]
+        text, table = self.program(body, before="#define BZ PORTCbits.RC0\n#define SW0 !PORTAbits.RA0\n"
+                                                "#define SW1 !PORTAbits.RA1")
+        target, _ = guess(text, table, DEVICE_REGS, DEVICE_PINS, polarity="low")      # pressed reads 0
+        notes = [a["note"] for a in target["trace"] if "set" in a]
+        self.assertIn("SW1 を離す（並んだループはスイッチを見ないので続く）", notes)
+        self.assertIn("SW0 を離す", notes)                           # SW0 alone makes it false: a plain press
+
+    def test_counting_while_the_switches_are_released(self):
+        before = ("const char seg[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66};\nunsigned char n;\n#define SW0 PORTAbits.RA5\n"
+                  "void show(void)\n{\n    PORTC = seg[n]; PORTAbits.RA0 = 0; __delay_ms(5); PORTAbits.RA0 = 1;\n"
+                  "    PORTC = seg[n]; PORTAbits.RA1 = 0; __delay_ms(5); PORTAbits.RA1 = 1;\n}")
+        body = ["TRISA = 0x20;", "while (1) {", "    while (SW0 == 1) {", "        for (int i = 0; i < 100; i++) show();",
+                "        n++;", "    }", "    show();", "}"]
+        text, table = self.program(body, before=before)
+        target, facts = guess(text, table, DEVICE_REGS, DEVICE_PINS, polarity="low")   # SW0 reads 1 while released
+        self.assertEqual(target["circuit"][0]["type"], "seg7mux")
+        at = text.split("\n").index("            n++;") + 1
+        head = text.split("\n").index("        while (SW0 == 1) {") + 1
+        self.assertEqual(facts["counting"], ["n"])
+        jumps = [(a["run_to"], a.get("show")) for a in target["trace"] if "run_to" in a][1:4]
+        self.assertEqual(jumps, [(at, head)] * 3)
+
+    def test_watchdog_off_for_a_source_without_configuration_bits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / "v3" / "pic" / "dat" / "cfgdata"
+            data.mkdir(parents=True)
+            (data / "18f4550.cfgdata").write_text("CSETTING:1:WDT:Watchdog Timer Enable bit\nCVALUE:1:ON:WDT enabled\n"
+                                                  "CVALUE:0:OFF:WDT disabled\n", encoding="utf-8")
+            (data / "16f886.cfgdata").write_text("CSETTING:8:WDTE:Watchdog Timer Enable bit\nCVALUE:8:ON,_WDT_ON:on\n"
+                                                 "CVALUE:0:OFF,_WDT_OFF:off\n", encoding="utf-8")
+            xc8 = Path(tmp) / "v3" / "bin" / "xc8-cc.exe"
+            self.assertEqual(watchdog_off(xc8, "PIC18F4550"), "#pragma config WDT = OFF")
+            self.assertEqual(watchdog_off(xc8, "PIC16F886"), "#pragma config WDTE = OFF")
+            self.assertIsNone(watchdog_off(xc8, "PIC16F877A"))
+        self.assertTrue(sets_no_config("#include <xc.h>\nvoid main(void) {}\n"))
+        self.assertFalse(sets_no_config("#pragma config CONFIG1 = 0x20C4\nvoid main(void) {}\n"))
 
     def test_swapped_for_is_noted_and_not_walked(self):
         body = ["while (1) {", "    for (int i = 0; i++; i < 500) {", "        PORTC = 1; __delay_ms(1);", "    }",

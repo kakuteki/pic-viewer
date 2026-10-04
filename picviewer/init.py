@@ -8,6 +8,7 @@ that makes an if true, or that ends an empty while loop (a wait), is the pressed
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
@@ -16,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from .bundle import read_source
-from .compiler import CompileError, compile_target, compiled_name
+from .compiler import CompileError, compile_target, compiled_name, sets_no_config, watchdog_off
 from .linetab import read_line_table
 from .picdef import PicDef
 from .project import ProjectError, Target, ascii_build_dir, normalize_device, parse_plan
@@ -143,20 +144,27 @@ def conditions(code, next_code):
 
 
 def true_value(cond, s, e):
-    """The value of the pin read at cond[s:e] that makes the condition true, or None if it does not decide."""
+    """The value of the pin read at cond[s:e] that makes the condition true, or None if it does not decide. Every
+    other pin of the condition is tried at 0 and at 1 on its own (RE0 == 0 && RE1 == 1 && RE2 == 1)."""
     expr = cond[:s] + " X " + cond[e:]
-    expr = re.sub(r"\bPORT[A-E]bits\.R[A-E]\d\b", " O ", expr)
+    others = []
+
+    def other(m):
+        others.append(m.group(0))
+        return f" O{len(others) - 1} "
+    expr = re.sub(r"\bPORT[A-E]bits\.R[A-E]\d\b", other, expr)
     if re.search(r"\b(PORT|LAT)[A-E]\b", expr):
         return None                                    # a whole port in the test: not a one-bit question
     expr = expr.replace("&&", " and ").replace("||", " or ")
     expr = re.sub(r"!(?!=)", " not ", expr).replace("~", " not ")
     expr = re.sub(r"\b(0[xX][0-9a-fA-F]+|0[bB][01]+|\d+)[uUlL]*\b", lambda m: str(c_int(m.group(1))), expr)
-    if re.search(r"[A-Za-z_]\w*", re.sub(r"\b(X|O|not|and|or)\b", " ", expr)):
+    if re.search(r"[A-Za-z_]\w*", re.sub(r"\b(X|O\d+|not|and|or)\b", " ", expr)) or len(others) > 8:
         return None                                    # other names (variables): the test is not about the pin
     found = set()
-    for other in (0, 1):
+    for values in itertools.product((0, 1), repeat=len(others)):
+        env = {f"O{n}": v for n, v in enumerate(values)}
         try:
-            t = [bool(eval(expr, {"__builtins__": {}}, {"X": x, "O": other})) for x in (0, 1)]   # noqa: S307
+            t = [bool(eval(expr, {"__builtins__": {}}, {"X": x, **env})) for x in (0, 1)]   # noqa: S307
         except Exception:                              # anything this simple translation cannot read
             return None
         if t[0] != t[1]:
@@ -339,7 +347,8 @@ def loop_shape(code, aliases):
         return bisect_right(starts, i)
 
     shape = {"loop": None, "sections": [], "ifs": [], "isr": None, "fors": [], "waits": {}, "functions": [],
-             "straight": False, "changed": set(), "for_vars": [], "called": [], "if_loops": [], "swapped": []}
+             "straight": False, "changed": set(), "for_vars": [], "called": [], "if_loops": [], "swapped": [],
+             "while_loops": [], "named": {}}
     for f in re.finditer(r"\bif\s*\(", text):
         close = closing(text, f.end() - 1)
         bs, be = statement_at(text, close + 1)
@@ -391,6 +400,15 @@ def loop_shape(code, aliases):
         if not re.sub(r"[{}();\s]", "", IDLE_RE.sub("", body)):
             around = set().union(*[pins for pins, a, b in ifs if a <= w.start() <= b] or [set()])
             shape["waits"][line_of(w.start())] = around
+        elif body.startswith("{") and text[close + 1:].lstrip().startswith("{"):     # not the while of a do
+            # a while with a body: the pins its condition tests, and the counts it moves on (n++; at its top level)
+            bstart = text.find("{", close)
+            steps_up = [(m.group(1) or m.group(2), line_of(a)) for k, a, b in statements_in(text, bstart, closing(text, bstart))
+                        if k is None for m in [re.fullmatch(r"\s*(?:([A-Za-z_]\w*)\s*(?:\+\+|\+=\s*\d+)|\+\+\s*([A-Za-z_]\w*))\s*;",
+                                                            text[a:b + 1])] if m]
+            tested = {f"R{a}{b}" for a, b in pin_re.findall(text[w.end():close])}
+            shape["while_loops"].append((tested, line_of(w.start()), line_of(closing(text, bstart)),
+                                         text[w.end():close], steps_up, text[bstart:closing(text, bstart) + 1]))
     # function bodies: blocks at the outermost level after a parameter list (not `= { ... }` tables)
     depth, last, named = 0, 0, {}
     for i, ch in enumerate(text):
@@ -431,6 +449,7 @@ def loop_shape(code, aliases):
                 called.add(n)
                 todo.append(named[n])
     shape["called"] = [(line_of(named[n][0]), line_of(named[n][1])) for n in sorted(called)]
+    shape["named"] = {n: (line_of(a), line_of(b)) for n, (a, b) in named.items()}
     # names given a value inside the loop or in another function (an interrupt, a function the loop calls)
     elsewhere = text[s:e + 1] + "".join(text[starts[a - 1]:starts[b - 1] if b < len(starts) else len(text)]
                                         for a, b in shape["functions"] if not (a <= shape["loop"][0] <= b))
@@ -572,6 +591,7 @@ def analyze(text, board=False):
         raw_conds = conditions(c, lines[k + 1][1] if k + 1 < len(lines) else "")
         decided = {}                     # pins each condition on the line decides on
         wanted = {}                      # and the value it needs each of them at
+        ballots = {}                     # the votes for the pressed state, by condition, counted after the line
         for m in re.finditer(r"([!~])?\s*\(?\s*\bPORT([A-E])bits\.R[A-E](\d)\b", rhs):
             pin = f"R{m.group(2)}{m.group(3)}"
             s = m.start() + len(m.group(0)) - len(f"PORT{m.group(2)}bits.R{m.group(2)}{m.group(3)}")
@@ -602,7 +622,16 @@ def analyze(text, board=False):
                         vote = first_wait[pin]     # a later wait on the pin goes with the first (press, release)
                     else:
                         vote = first_wait[pin] = 1 - v
-                    info["votes"].setdefault(pin, []).append(vote)
+                    ballots.setdefault(n, []).append((pin, v, vote))
+        for n, votes in ballots.items():
+            # three or more switches in one condition: the ones wanted at the less common value are the pressed ones,
+            # the rest stand for "the others released" and say nothing of how a press reads
+            values = Counter(v for _, v, _ in votes)
+            if len({pin for pin, _, _ in votes}) >= 3 and len(values) == 2 and min(values.values()) < max(values.values()):
+                few = min(values, key=values.get)
+                votes = [x for x in votes if x[1] == few]
+            for pin, _, vote in votes:
+                info["votes"].setdefault(pin, []).append(vote)
         for n, pins in decided.items():
             info["test_lines"].setdefault(no, set()).update(pins)
             info["cond_wants"].setdefault(no, []).append(dict(wanted[n]))      # what makes the condition true
@@ -972,6 +1001,26 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
                            and sum(1 for no, v in indexed if head <= no <= last) >= 2),
                           key=lambda x: x[2] - x[1])[:2]
 
+    if mux and loop and not counting:
+        # a while that runs while every switch is released, shows the display (writes it or calls what does) and
+        # moves a count on with name++ at its top level: run_to that line (the count goes on once a pass)
+        shows = {n for n, (a, b) in info["shape"]["named"].items() if writes_in(a, b)}
+        inside = [loop] + info["shape"]["called"]
+        for tested, head, last, cond, steps_up, body in info["shape"]["while_loops"]:
+            if not steps_up or not any(a <= head <= b for a, b in inside) or head == loop[0]:
+                continue
+            rest = re.sub(r"PORT[A-E]bits\.R[A-E]\d|[!=<>]=?|&&|\|\||[()~]|\b(?:0[xXbB][0-9a-fA-F]+|\d+)\b|\s", "", cond)
+            wants = next((w for w in info["cond_wants"].get(head, []) if set(w) == tested), None)
+            if rest or not tested or wants is None or not tested <= set(by_pin) \
+                    or any(wants[p] != level(by_pin[p], False) for p in tested):
+                continue                      # it does not run while everything is released
+            if not (writes_in(head, last) or set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", body)) & shows):
+                continue
+            var, at = steps_up[0]
+            if at in lines:
+                counting = [(var, head, at)]
+                break
+
     def count_on():
         for n, (var, head, last) in enumerate(counting):
             for _ in range(3 if n == 0 else 1):
@@ -1040,10 +1089,14 @@ def guess(text, table, device_regs, device_pins, polarity="auto", bank=None, wri
                 rest = re.sub(r"PORT[A-E]bits\.R[A-E]\d|[!=<>]=?|&&|\|\||[()~]|\b(?:0[xXbB][0-9a-fA-F]+|\d+)\b|\s", "", cond)
                 if rest or not tested or ("&&" in cond and "||" in cond):
                     continue                  # variables in it, or both: a run_to inside might never arrive
-                if (tested != set(pressed)) if "||" not in cond else not tested & set(pressed):
-                    continue
                 wants = next((w for w in info["cond_wants"].get(at, []) if set(w) == tested), None)
-                if wants is None or any(wants.get(p, level(by_pin[p], True)) != level(by_pin[p], True) for p in pressed):
+                if wants is None or not tested <= set(by_pin) or not set(pressed) & tested:
+                    continue
+                if "||" in cond:
+                    holds = any(wants[p] == level(by_pin[p], True) for p in pressed if p in wants)
+                else:                         # the pressed ones pressed, every other one it tests released
+                    holds = set(pressed) <= tested and all(wants[p] == level(by_pin[p], p in pressed) for p in tested)
+                if not holds:
                     continue                  # pressing does not make it true (it waits for a release)
                 inside = [(h, e, next((ln for ln in lines if h < ln <= e), None)) for h, e in loops if (h, e) not in swapped]
                 inside = [x for x in inside if x[2] is not None and writes_in(x[0], x[1])]
@@ -1294,6 +1347,8 @@ def init_source(source, project_dir, device, tc, *, polarity="auto", bank=None, 
         rel = source.as_posix()
     if xc8_args:
         target["xc8_args"] = xc8_args
+    if sets_no_config(source.read_text(encoding="utf-8", errors="replace")) and watchdog_off(tc.require_xc8(), device):
+        target["summary"] += "。設定ビット（#pragma config）が無いので、シミュレータではウォッチドッグタイマーを切って動かす"
     project = {"title": source.stem, "output": f"{source.stem}_viewer.html",
                "targets": [{"id": device.lower(), "device": device, "source": rel, **target}]}
     out_file.write_text(json.dumps(project, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")

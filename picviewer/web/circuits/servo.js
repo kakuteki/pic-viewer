@@ -80,8 +80,9 @@
       const p = ctx.pulse(level, SPAN);
       const fresh = p.period !== null && p.high !== null && p.since !== null && p.since <= 2 * p.period;
       if (!fresh && p.period === null && p.edges > 0 && p.since !== null && p.since <= STARTED) {
-        status.push({ label: 'パルス', value: '（出し始め）', tone: 'on' });
-        return { status, text: `${pin} からパルスを出し始めたところで、まだ 1 周期分の記録が無い（幅は次の 1 周期で分かる）。`,
+        status.push({ label: 'パルス', value: p.input ? '（入力を変えた直後）' : '（出し始め）', tone: 'on' });
+        return { status, text: p.input ? `${pin} は入力を変えた後もパルスを出しているが、変えてからまだ 1 周期分の記録が無い（幅は次の 1 周期で分かる）。`
+          : `${pin} からパルスを出し始めたところで、まだ 1 周期分の記録が無い（幅は次の 1 周期で分かる）。`,
           probe: { level: now, width: null, angle: null } };
       }
       if (!fresh && p.cut && p.period === null && p.edges === 0) {

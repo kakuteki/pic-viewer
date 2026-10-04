@@ -62,19 +62,21 @@
     return { segs, on, outs };
   }
 
-  // the time each segment of each digit was lit in the window up to the next stop (this stop's values hold until
-  // then), the window itself (one round of the digits when that is longer than window_ms), and how much of it the
-  // recording covers. The average starts at the later of the last input change (set, press: the display before it
-  // was another one) and the first write stop (the setup before it lasts microseconds, with every pin in its reset
-  // state). A recording cut by run_to that holds one round or more is averaged over its whole rounds: the display
-  // repeats itself, so that is what the eye sees
+  // what the display shows at one set of register values, for telling stops that change nothing on it
+  const look = (st) => `${st.on.join()}|${st.on.some(Boolean) ? Object.keys(st.segs).filter((n) => st.segs[n]).join() : ''}`;
+
+  // the time each segment of each digit was lit in the window up to where this stop's picture changes (its values
+  // hold over the stops after it that leave the display as it is), the window itself (one round of the digits when
+  // that is longer than window_ms), and how much of it the recording covers. The average starts at the first write
+  // stop (the setup before it lasts microseconds, with every pin in its reset state); an input change does not cut
+  // it, as the eye keeps what it saw. A recording cut by run_to that holds one round or more is averaged over its
+  // whole rounds: the display repeats itself, so that is what the eye sees
   function average(c, ctx, U) {
     const { t, k } = ctx;
-    const h = ctx.history(LOOK_BACK, true);
-    let since = 0;
-    for (let i = k; i > 0; i--) if (t.steps[i].inputs || t.steps[i].key !== undefined) { since = i - 1; break; }
+    const now = look(stateOf(c, ctx.R, U));
+    const h = ctx.history(LOOK_BACK, (i) => look(stateOf(c, ctx.regsAt(t.steps[i]), U)) === now);
     const firstLoop = t.steps.findIndex((st) => st.kind === 'write' || st.kind === 'timeout');
-    if (firstLoop > 0) since = Math.max(since, firstLoop);
+    const since = Math.max(0, firstLoop);
     const trimmed = h.spans.length > 0 && h.spans[h.spans.length - 1].i < since;
     const states = h.spans.filter((sp) => sp.i >= since).map((sp) => ({ ...sp, st: stateOf(c, sp.R, U) }));
     // one round: the time between the last two switch-ons of the digit switched on most recently, with another
@@ -116,8 +118,8 @@
       });
     });
     onAt.forEach((ts) => { if (ts.some((x) => x > from)) switched = true; });
-    // cut short only by a stretch the recording does not know; trimmed at an input change or at the start of the
-    // loop, what is left is all recorded and is averaged as it is
+    // cut short only by a stretch the recording does not know; trimmed at the start of the loop, what is left is
+    // all recorded and is averaged as it is
     return { sums, covered, win, round, rounds, lit, switched, cut: h.cut && !trimmed && covered < win * 0.999 };
   }
 
@@ -196,15 +198,20 @@
         svg.querySelector(`[data-pin="${d}"]`).classList.toggle('em', on);
       });
       // what can be read: each digit against its own brightest segment, leaving out faint ghosts
-      const shown = share.map((s) => {
+      const odd = [];
+      const shown = share.map((s, d) => {
         const top = Math.max(0, ...Object.values(s));
         if (top < c.minShare || top < FAINT * peak) return ' ';
         const lit = Object.entries(s).filter(([, v]) => v >= top / 2).map(([n]) => n);
         let bits = 0;
         lit.forEach((n) => { const b = U.seg7.NAMES.indexOf(n); if (b >= 0 && b < 7) bits |= 1 << b; });
         const ch = bits === 0 ? ' ' : (U.seg7.SHAPES[bits] || '?');
+        if (ch === '?') odd.push(`${d + 1} 桁目は ${lit.filter((n) => n !== 'dp').join('、')}`);
         return (ch.length > 1 ? ' ' : ch) + (lit.includes('dp') ? '.' : '');
       }).join('');
+      // the setup lasts microseconds: what is on the pins then is no picture anyone sees
+      const firstLoop = t.steps.findIndex((st) => st.kind === 'write' || st.kind === 'timeout');
+      const setupNow = firstLoop > 0 && ctx.k < firstLoop;
       const nowPins = c.digits.filter((_, d) => here.on[d]).map((d) => d.pin);
       const ms = (s) => `${U.num(s * 1000, s < 0.01 ? 1 : 0)} ms`;
       const byRound = (avg.round && avg.win > c.windowS) || avg.rounds > 0;
@@ -217,6 +224,7 @@
         texts.push(`直前 ${winText} のうち記録があるのは ${ms(avg.covered)} だけ（その前は書き込みを止めずに走らせた）なので、`
           + '平均できず、今の瞬間だけを描いている。');
       }
+      if (setupNow) texts.push('初期設定の途中。この出力は数 µs しか続かないので、目には見えない。');
       texts.push(nowPins.length ? `今は ${nowPins.join('、')} の桁を点けている。` : '今はどの桁も消えている。');
       if (still && nowPins.length) texts.push(`桁を切り替えていないので、今の表示がそのまま見える: ${shown.trim() || '（何も）'}。`);
       if (averaged) {
@@ -227,10 +235,12 @@
         if (avg.round && avg.round > FLICKER_S) texts.push(`1 巡に ${ms(avg.round)} かかる（40 Hz より遅い）ので、目にはちらついて見える。`);
         if (avg.rounds) texts.push('（その前は書き込みを止めずに走らせたので、記録のある分だけを平均した。）');
       }
+      if (odd.length && shown.trim()) texts.push(`（? は字に当たらない形。${odd.join('、')} が点いている）`);
       if (noTris.length) texts.push(`TRIS${noTris.join('、TRIS')} を記録していないので、ピンは出力と仮定した。`);
       return {
         status: [
-          { label: '目に見える表示', value: shown.trim() ? shown : '（全部消えている）', tone: shown.trim() ? 'on' : '', mono: true },
+          { label: setupNow ? '今の出力（初期設定の途中）' : '目に見える表示', value: shown.trim() ? shown : '（全部消えている）',
+            tone: shown.trim() && !setupNow ? 'on' : '', mono: true },
           { label: '今点いている桁', value: nowPins.join('、') || 'なし', tone: nowPins.length ? 'on' : '' },
           { label: '平均した時間', value: averaged ? `${ms(avg.covered)}（${byRound ? roundsText : `窓 ${ms(avg.win)}`}）`
             : still ? 'この場面だけ（切り替えていない）' : 'この場面だけ' },
